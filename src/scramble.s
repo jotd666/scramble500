@@ -209,21 +209,16 @@ DIRF_UP = 1<<DIRB_UP
 
 STATE_PLAYING = 0
 STATE_GAME_OVER = 1*4
-STATE_BONUS_SCREEN = 2*4
-STATE_NEXT_LEVEL = 3*4
-STATE_LIFE_LOST = 4*4
-STATE_INTRO_SCREEN = 5*4
-STATE_GAME_START_SCREEN = 6*4
+STATE_NEXT_LEVEL = 2*4
+STATE_LIFE_LOST = 3*4
+STATE_INTRO_SCREEN = 4*4
+STATE_GAME_START_SCREEN = 5*4
 
 
 ; offset for enemy animations
 
-JUMP_FIRST_FRAME = police1_jump_frame_table-police1_frame_table
-HANG_FIRST_FRAME = police1_hang_frame_table-police1_frame_table
-KILL_FIRST_FRAME = police1_kill_frame_table-police1_frame_table
-FALL_FIRST_FRAME = police1_fall_frame_table-police1_frame_table
-CRASH_FIRST_FRAME = FALL_FIRST_FRAME+8
-SCORE_FIRST_FRAME = police1_score_frame_table-police1_frame_table
+KILL_FIRST_FRAME = 8
+SCORE_FIRST_FRAME = 8
 
 ; jump table macro, used in draw and update
 DEF_STATE_CASE_TABLE:MACRO
@@ -235,7 +230,6 @@ DEF_STATE_CASE_TABLE:MACRO
 .case_table
     dc.l    .playing
     dc.l    .game_over
-    dc.l    .bonus_screen
     dc.l    .next_level
     dc.l    .life_lost
     dc.l    .intro_screen
@@ -454,8 +448,7 @@ intro:
 
     tst.b   demo_mode
     bne.b   .no_credit
-    lea credit_sound(pc),a0
-    bsr play_fx
+    
 
 .game_start_loop
     bsr random      ; so the enemies aren't going to do the same things at first game
@@ -487,18 +480,7 @@ intro:
     bsr wait_bof
     
     bsr draw_score
-    tst.b   next_level_is_bonus_level
-    beq.b   .normal_level
 
-    bsr init_player     ; at least reset 3 stars
-
-    bsr wait_bof
-
-    move.w  #STATE_BONUS_SCREEN,current_state
-    move.w #INTERRUPTS_ON_MASK,intena(a5)
-    
-    bra.b   .mainloop
-.normal_level    
     ; for debug
     ;;bsr draw_bounds
     
@@ -535,7 +517,7 @@ intro:
 .game_start_screen
 .intro_screen       ; not reachable from mainloop
     bra.b   intro
-.bonus_screen
+
 .playing
     bra.b   .mainloop
 
@@ -815,7 +797,7 @@ draw_score:
     move.w  #$FF,d2
     bsr write_color_string
     lea score_string(pc),a0
-    move.w  #$FFF,d2
+    move.w  #$FF0,d2
     move.w  #232,d0
     add.w  #8,d1
     bsr write_color_string
@@ -951,9 +933,8 @@ init_player:
     move.w  #-1,player_killed_timer
     clr.w   next_enemy_iteration_score
     clr.w   fright_timer    
-    move.b  #3,nb_stars
-    move.w  #-1,jump_index
-    move.w  #JUMP_FIRST_FRAME,jump_frame
+
+
     
     rts
     	    
@@ -1182,11 +1163,6 @@ draw_enemies:
     
     rts
 
-.eyes
- 
-
-    bra.b   .end_anim
-
 .draw_enemy
     move.w  xpos(a0),d0
     addq.w  #1,d0       ; compensate
@@ -1207,66 +1183,7 @@ draw_enemies:
     illegal
 .in_range
     ENDC
-    lea     palette(a0),a2      ; normal ghost colors
-    lea     .jump_table(pc),a1
-    move.l  (a1,d3.w),a1
-    jmp     (a1)
-    
-.draw_hang
-    addq.w  #8,d1   ; compensate
-    move.w  fall_hang_toggle(a0),d2
-    add.w   #HANG_FIRST_FRAME,d2
-    bra.b   .get_frame
-.draw_fall
-    move.w  fall_hang_toggle(a0),d2
-    add.w   #FALL_FIRST_FRAME,d2
-    bra.b   .get_frame
-.draw_crash
-    move.w  fall_hang_toggle(a0),d2
-    add.w   #CRASH_FIRST_FRAME,d2
-    bra.b   .get_frame
-.draw_jump
-    ; choose the frame among jump/hang/fall
-    move.w  jump_frame(pc),d2
-    bra.b   .get_frame
-.draw_killed
-    move.w  score_frame(a0),d2
-    bra.b   .get_frame
-.draw_kill
-    move.w  enemy_kill_frame(pc),d2
-    bra.b   .get_frame
-.draw_normal
-    move.w  frame(a0),d2
-    
-    lsr.w   #2,d2   ; 8 divide to get 0,1
-    bclr    #0,d2   ; even
-    add.w   d2,d2       ; times 2
-.end_anim
-
-.get_frame
-    move.l  frame_table(a0),a1
-    ; get proper frame from proper frame set
-    move.l  (a1,d2.w),a1
-    ; now if D6 is non-zero, handle shift
-.store_sprite_pos
-    move.l  d0,(a1)     ; store control word
-    move.l  a1,d2    
-    move.l  copperlist_address(a0),a1
-    move.w  d2,(6,a1)
-    swap    d2
-    move.w  d2,(2,a1)    
-    rts
-.jump_table
-    dc.l    .draw_normal
-    dc.l    .draw_normal
-    dc.l    .draw_normal
-    dc.l    .draw_normal
-    dc.l    .draw_hang
-    dc.l    .draw_fall
-    dc.l    .draw_jump
-    dc.l    .draw_kill
-    dc.l    .draw_killed
-    dc.l    .draw_crash
+	rts
     
      
 draw_all
@@ -1276,82 +1193,6 @@ draw_all
 .intro_screen
     bra.b   draw_intro_screen
 ; draw bonus screen
-.bonus_screen
-    tst.w   bonus_text_screen_countdown
-    beq.b   .maze_part
-    bsr     hide_sprites
-    move.w  #72,d0
-    move.w  #40,d1
-    lea     .bonus_stage_text(pc),a0
-    move.w  #$FF,d2
-    bsr     write_color_string
-    move.w  #80,d0
-    move.w  #96,d1
-    lea     .5000_points_text(pc),a0
-    move.w  #$FF0,d2
-    bsr     write_color_string
-    move.w  #48,d0
-    move.w  #136,d1
-    lea     .push_jump_button_text(pc),a0
-    move.w  #$F0,d2
-    bsr     write_color_string
-    ; banana sprite at x=60
-    move.w  #60,d0
-    move.w  #96,d1
-    bsr store_sprite_pos
-
-
-
-    bsr draw_lives
-    bsr draw_fuel
-.skip_draw
-    rts
-.maze_part
-    cmp.l   #1,state_timer      ; init done at first tick of update_intro_screen
-    
-    ; draw cattle
-    lea enemies+Enemy_SIZEOF(pc),a0
-    move.w  xpos(a0),d0
-    add.w   #1,d0
-    move.w  ypos(a0),d1
-    add.w   #3-4,d1
-    bsr store_sprite_pos
-    
-    
-    move.l  d2,d0
-    
-    ; change sprite to first cattle jump
-    lea cattle1_jump_0,a1
-    bra.b  .store_cw
-.lost
-    lea cattle1_hang_1,a1
-    ; change sprite to second cattle hang
-    bra.b  .store_cw
-.normal
-    move.l  frame_table(a0),a1
-    move.w  frame(a0),d2
-    lsr.w   #2,d2   ; 8 divide to get 0,1
-    bclr    #0,d2   ; even
-    add.w   d2,d2       ; times 2
-
-    ; get proper frame from proper frame set
-    move.l  (a1,d2.w),a1
-
-.store_cw
-    move.l  d0,(a1)     ; store control word
-    move.l  a1,d0
-    lea intro_cattle_pink,a0
-    bra store_sprite_copperlist
-
-	
-    
-.bonus_stage_text
-    dc.b    "BONUS  STAGE",0
-.5000_points_text
-    dc.b    ".... 5000 PTS",0
-.push_jump_button_text:
-    dc.b    "PUSH JUMP  BUTTON",0
-    even
     
 .game_start_screen
     tst.l   state_timer
@@ -1554,7 +1395,7 @@ draw_intro_screen
     lea    .play(pc),a0
     move.w  #96,d0
     move.w  #48-24,d1
-    move.w  #$0f0,d2
+    move.w  #$ff0,d2
     bsr write_color_string    
     bsr draw_title
     ; first update, don't draw enemies or anything as they're not initialized
@@ -1675,6 +1516,7 @@ draw_intro_screen
     
     cmp.b   #3,d0
     bne.b   .no_part3
+	IFEQ	1
     ; blit characters
     move.w  #56,d3
     move.w  #72-24,d4
@@ -1726,7 +1568,8 @@ draw_intro_screen
     lea intro_cyan_cattle,a1
     move.w  #1,d2
     bsr .load_sprite
-    
+    ENDC
+	
     lea draw_char_command(pc),a1
     tst.b   (5,a1)
     beq.b   .nothing_to_print
@@ -1838,7 +1681,7 @@ draw_intro_screen
 .characters
     dc.b    "-  CHARACTER  -",0
 .play
-    dc.b    'PLAY',0
+    dc.b    "PLAY",0
 .pts
     dc.b    "0 PTS  hhh",0
     
@@ -1909,12 +1752,29 @@ draw_title
     lea    .title(pc),a0
     move.w  #64,d0
     move.w  #72-24,d1
-    move.w  #$0ff0,d2
+    move.w  #$0dd,d2
     bsr write_color_string 
+	
+    lea    .how_far_1(pc),a0
+    move.w  #24,d0
+    move.w  #136-24,d1
+    move.w  #$0f40,d2
+    bsr write_color_string 
+	
+    lea    .how_far_2(pc),a0
+    move.w  #24,d0
+    move.w  #136,d1
+    bsr write_color_string 
+	
+	
     bra.b   draw_copyright
 
 .title
-    dc.b    '-  SCRAMBLE  -',0
+    dc.b    '- SCRAMBLE -',0
+.how_far_1
+	dc.b	"HOW FAR CAN YOU INVADE",0
+.how_far_2
+	dc.b	" OUR SCRAMBLE SYSTEM ?",0
     even
 draw_copyright
     lea    .copyright(pc),a0
@@ -1923,7 +1783,7 @@ draw_copyright
     move.w  #$0fff,d2
     bra write_color_string    
 .copyright
-    dc.b    'c KONAMI  1982',0
+    dc.b    'c KONAMI  1981',0
     even
 
 ; what: clears a plane of any width (not using blitter, no shifting, start is multiple of 8), 16 height
@@ -2122,7 +1982,7 @@ draw_fuel:
     subq.b  #1,d7
     ext     d7    
 .lloop
-    lea star,a0
+    ;;lea star,a0
     lea	screen_data+STARS_OFFSET,a1
     add.l   d7,a1
     moveq   #3,d2
@@ -2669,101 +2529,6 @@ update_all
 .intro_screen
     bra update_intro_screen
     
-    ; update_bonus_screen
-.bonus_screen
-  
-    tst.l   state_timer
-    bne.b   .no_first_bonus_tick
-
-    addq.l  #1,state_timer
-
- 
-.no_first_bonus_tick
-
-
-    bsr init_enemies
-    lea enemies+Enemy_SIZEOF(pc),a0
-
-    move.w  #0,xpos(a0)
-    move.w  #8,ypos(a0)
-    move.w  #DOWN,direction(a0)
-    move.l  #$FFFF0001,h_speed(a0)   
-.no_bonus_init
-    rts
-    
-.bonus_playing
-    addq.l  #1,state_timer
-    
-    tst.b   bonus_cattle_moving
-    bne.b   .moving
-    
-    move.l  joystick_state(pc),d0
-    cmp.l   #ORIGINAL_TICKS_PER_SEC*10,state_timer
-    bne.b   .no_timeout
-    ; timeout (if not already triggered)
-    bset    #JPB_BTN_RED,d0
-.no_timeout
-    btst    #JPB_BTN_RED,d0
-    beq.b   .no_fire
-    st.b    bonus_cattle_moving
-    
-.no_fire
-    ; just selecting lane
-
-    ; play ping sound
-    lea ping_sound,a0
-    bsr play_fx
-    ; advance lane
-    lea enemies+Enemy_SIZEOF(pc),a0
-    move.w  xpos(a0),d0
-    add.w   #40,d0
-    cmp.w   #240,d0
-    bne.b   .no_wrap
-    clr.w   d0
-.no_wrap
-    move.w  d0,xpos(a0)
-.do_nothing
-    rts
-    
-.moving
-    lea enemies+Enemy_SIZEOF(pc),a0
-
-	; paint maze
-    move.w  xpos(a0),d0
-    move.w  ypos(a0),d1
-    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
-    
-    add.w   #2,d1
-    
-    lea screen_data,a1    
-    ADD_XY_TO_A1    a2
-    lea (SCREEN_PLANE_SIZE,a1),a2
-    cmp.w   #LEFT,direction(a0)
-    beq.b   .skipleft
-    move.b  (a1),(a2)
-    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
-.skipleft
-    move.b  (1,a1),(1,a2)
-    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
-   
-    
-.no_replay
-    lea enemies+Enemy_SIZEOF(pc),a4
-
-    move.w  ypos(a4),d0
-    bmi.b   .down   ; not in the maze yet
-    cmp.w   #200,d0
-    beq.b   .out
-    cmp.w   #190,d0
-    bcc.b   .down   ; out of the maze
-    rts
-.no_animate
-    rts
-.down
-    bsr animate_enemy
-    addq.w  #1,ypos(a4)
-    rts    
-   
     
     
 .game_start_screen
@@ -3218,34 +2983,7 @@ play_loop_fx
 .nosfx
     rts
     
-; what: sets game state when all 4 corners are completed
-; trashes: A0,D0
-all_four_corners_done
-    movem.l  d1-d2/a1,-(a7)
-	; reset crash respawn delay table
-	lea	crash_respawn_delay_table(pc),a0
-	moveq.w	#6,d0
-.clr
-	; 6*2 bytes
-	clr.l	(a0)+
-	dbf	d0,.clr	
-    ; resets next enemy eaten score
-    clr.w  next_enemy_iteration_score
-    lea enemies(pc),a0
-    move.w  nb_enemies_but_thief(pc),d7
-    addq.w  #1,d7
-    move.w  d7,nb_enemies_to_eat
-    subq.w  #1,d7
-.gloop
-    move.w  mode(a0),d0
 
-    add.w   #Enemy_SIZEOF,a0    
-    dbf d7,.gloop
-    
-
-    movem.l (a7)+,d1-d2/a1
-    rts
-    
 
     
     
@@ -3347,10 +3085,10 @@ update_player
     btst    #JPB_BTN_RED,d0
     beq.b   .no_fire
 
-    lea     jump_sound,a0
-    move.l  d0,-(a7)
-    bsr     play_fx
-    move.l  (a7)+,d0
+;    lea     jump_sound,a0
+;    move.l  d0,-(a7)
+;    bsr     play_fx
+;    move.l  (a7)+,d0
     
 
 .no_fire
@@ -3650,11 +3388,7 @@ record_input:
 ; called when pacman moves
 ; < A4: pac player
 animate_player
-    addq.w  #1,frame(a4)
-    cmp.w   #(rustler_anim_left_end-rustler_anim_left)/4,frame(a4)
-    bne.b   .no_floop
-    clr.w   frame(a4)
-.no_floop
+    eor.w  #1,frame(a4)
     rts
 
 
@@ -3673,56 +3407,25 @@ draw_player:
     tst.l   d5    
     bmi.b   .no_erase
     ; restore plane 0 using CPU
-    lea grid_backup_plane,a0    
     lea screen_data,a1
     sub.l   a1,d5       ; d5 is now the offset
-    ; d0 is the offset: add it
-    add.l   d5,a1
-    add.l   d5,a0
-    ; now copy a rectangle of the saved screen
-    REPT    18
-    move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a0),((REPTN-1)*NB_BYTES_PER_LINE,a1)
-    ENDR
 
-    tst.b   rustler_level
-    beq.b   .no_erase
-    add.w   #SCREEN_PLANE_SIZE,a1
-    lea     paint_backup_plane,a0
-    add.l   d5,a0
-    ; now copy a rectangle of the saved screen
-    REPT    18
-    move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a0),((REPTN-1)*NB_BYTES_PER_LINE,a1)
-    ENDR
     
 .no_erase
 
     lea     player(pc),a2
     tst.w  player_killed_timer
     bmi.b   .normal
-    lea     copier_dead_table,a0
-    tst.b   rustler_level
-    beq.b   .no_rust
-    lea     rustler_dead_table,a0
-.no_rust
+    ;;lea     copier_dead_table,a0
     move.w  death_frame_offset(pc),d0
     add.w   d0,a0       ; proper frame to blit
     move.l  (a0),a0
     bra.b   .pacblit
 .normal
-
-    move.w  direction(a2),d0
-    lea  copier_dir_table(pc),a0
-    tst.b   rustler_level
-    beq.b   .cont
-    lea  rustler_dir_table(pc),a0    
-.cont
-    move.l  (a0,d0.w),a0
-    move.w  frame(a2),d0
-    add.w   d0,d0
-    add.w   d0,d0
-    move.l  (a0,d0.w),a0
+	nop
+	; TODO: get blit data in A0
+	; using frame(a2)
 .pacblit
-
     move.w  xpos(a2),d3    
 	addq.w	#1,d3	; X-offset
     move.w  ypos(a2),d4
@@ -3749,19 +3452,10 @@ draw_player:
     tst.l   d5
     bmi.b   .no_erase2
         
-    ; restore plane 2
-    lea   screen_data+SCREEN_PLANE_SIZE*2,a1
-    lea rect_backup_plane,a4    
-    add.l   d5,a4
-    add.l   d5,a1
-    ; now copy a rectangle of the saved screen
-    REPT    18
-    move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a4),((REPTN-1)*NB_BYTES_PER_LINE,a1)
-    ENDR
+	; clear plane 2
 
 .no_erase2    
-    tst.b   rustler_level
-    beq.b   .no_plane_1
+
     lea	screen_data+SCREEN_PLANE_SIZE,a1
     move.l  a1,a2   ; just restored background
     ; plane 2
@@ -4586,12 +4280,12 @@ write_string:
     moveq.l #0,d2
     bra.b   .wl
 .noquote
-    cmp.b   #'h',d2
-    bne.b   .noheart
-    lea heart(pc),a2
+    cmp.b   #'?',d2
+    bne.b   .noqmark
+    lea qmark(pc),a2
     moveq.l #0,d2
     bra.b   .wl
-.noheart
+.noqmark
     cmp.b   #'c',d2
     bne.b   .nocopy
     lea copyright(pc),a2
@@ -4916,41 +4610,14 @@ bonus_score_display_message:
     dc.w    0
 extra_life_message:
     dc.w    0
-crash_respawn_delay_table
-	ds.w	26		; 6 x positions spaced by 4 unused slots, but let's make it safe
 score_table
     dc.w    0,1,5
-nb_enemy_table
-    dc.w    4,4,5,5,6,6
-	; not sure it's accurate, well, doesn't matter, as the arcade
-	; game came with different versions and skill levels.
-standby_time_table
-	dc.w	5*ORIGINAL_TICKS_PER_SEC
-	dc.w	4*ORIGINAL_TICKS_PER_SEC
-	dc.w	3*ORIGINAL_TICKS_PER_SEC
-	dc.w	2*ORIGINAL_TICKS_PER_SEC
-	dc.w	1*ORIGINAL_TICKS_PER_SEC
-	dc.w	1	; 1 frame: no standby
-	
-	
+
 fruit_score     ; must follow score_table
     dc.w    10
 loop_array:
     dc.l    0,0,0,0
     
-police_fright_palette
-    dc.w    $0000,$0f00,$00F0,$0ff0
-cattle_fright_palette
-    dc.w    $0000,$F91,$0F0,$0c0f
-police_fright_blink_palette
-    dc.w    $0000,$0fFF,$0F00,$f91
-cattle_fright_blink_palette
-    dc.w    $0000,$0fff,$00ff,$0f00
-    
-fright_palette
-    dc.l    0
-fright_blink_palette
-    dc.l    0
     
 player_kill_anim_table:
     REPT    ORIGINAL_TICKS_PER_SEC/2
@@ -4965,42 +4632,11 @@ player_kill_anim_table:
     even
     
     even
-
     
 
 cheat_sequence
     dc.b    $26,$18,$14,$22,0
     even
-
-copier_dir_table
-    dc.l    copier_anim_right,copier_anim_left,copier_anim_up,copier_anim_down
-rustler_dir_table
-    dc.l    rustler_anim_right,rustler_anim_left,rustler_anim_up,rustler_anim_down
-    
-COPIER_ANIM_TABLE:MACRO
-copier_anim_\1
-
-    dc.l    copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0
-    dc.l    copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1
-copier_anim_\1_end
-    ENDM
-    
-RUSTLER_ANIM_TABLE:MACRO
-rustler_anim_\1
-    dc.l    rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0
-    dc.l    rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1
-rustler_anim_\1_end
-    ENDM
-    
-    COPIER_ANIM_TABLE  right
-    COPIER_ANIM_TABLE  left
-    COPIER_ANIM_TABLE  up
-    COPIER_ANIM_TABLE  down
-    
-    RUSTLER_ANIM_TABLE  right
-    RUSTLER_ANIM_TABLE  left
-    RUSTLER_ANIM_TABLE  up
-    RUSTLER_ANIM_TABLE  down
 
 
 
@@ -5052,8 +4688,8 @@ dot
     incbin  "dot.bin"
 quote
     incbin  "quote.bin"
-heart
-    incbin  "heart.bin"
+qmark
+    incbin  "qmark.bin"
 copyright
     incbin  "copyright.bin"
 space
@@ -5151,62 +4787,9 @@ SOUND_ENTRY:MACRO
     ENDM
     
     ; radix, ,channel (0-3)
-    SOUND_ENTRY lose_bonus,1,SOUNDFREQ,64
-    SOUND_ENTRY enemy_hit,1,SOUNDFREQ,64
-    SOUND_ENTRY enemy_falling,2,SOUNDFREQ,48
-    SOUND_ENTRY enemy_killed,2,SOUNDFREQ,56
     SOUND_ENTRY extra_life,2,SOUNDFREQ,56
-    SOUND_ENTRY thief_attacks,2,SOUNDFREQ,48
     SOUND_ENTRY player_killed,2,SOUNDFREQ,40
-    SOUND_ENTRY credit,1,SOUNDFREQ,64
-    SOUND_ENTRY eat,3,SOUNDFREQ,16
-    SOUND_ENTRY ping,3,SOUNDFREQ,32
-    SOUND_ENTRY paint,3,SOUNDFREQ,12
-    SOUND_ENTRY filled,0,SOUNDFREQ,24
-    SOUND_ENTRY jump,1,SOUNDFREQ,24
 
-; 0-49 divisibility table
-divisible_by_5_table
-    REPT    10
-    dc.b    1
-    dc.b    0,0,0,0
-    ENDR
-    
-; ORed previous/current direction masks which allow
-; a quick check to see if player just reversed direction
-reverse_direction_table
-	;		R,L,U,D
-	dc.b	0,1,0,0	; R	
-	dc.b	1,0,0,0	; L
-	dc.b	0,0,0,1	; U
-	dc.b	0,0,1,0	; D
-	
-jump_height_table
-	dc.b	-2,-2,-2,-2,-2,-2,-1,-2,-1,-2,-1,-1,-1,0,-1,-1,0,0,0,-1
-	dc.b	1,0,0,0,1,1,0,1,1,1,2,1,2,1,2,2,2,2,2,2
-jump_height_table_end    
-
-; attack timeouts
-
-attack_timeout_table
-    IFD THIEF_AI_TEST
-    dc.w    ORIGINAL_TICKS_PER_SEC*10
-    dc.w    ORIGINAL_TICKS_PER_SEC*2
-    ENDC
-    dc.w    ORIGINAL_TICKS_PER_SEC*100
-    dc.w    ORIGINAL_TICKS_PER_SEC*80
-    dc.w    ORIGINAL_TICKS_PER_SEC*65
-    dc.w    ORIGINAL_TICKS_PER_SEC*55
-    dc.w    ORIGINAL_TICKS_PER_SEC*53
-    dc.w    ORIGINAL_TICKS_PER_SEC*25
-    dc.w    ORIGINAL_TICKS_PER_SEC*12
-    dc.w    ORIGINAL_TICKS_PER_SEC*10
-    dc.w    ORIGINAL_TICKS_PER_SEC*8
-    dc.w    ORIGINAL_TICKS_PER_SEC*5
-    dc.w    ORIGINAL_TICKS_PER_SEC*4
-    dc.w    ORIGINAL_TICKS_PER_SEC*3
-    dc.w    ORIGINAL_TICKS_PER_SEC*2
-    dc.w    ORIGINAL_TICKS_PER_SEC*1
 
 
 ; enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
@@ -5373,31 +4956,8 @@ record_input_table:
     ds.b    RECORD_INPUT_TABLE_SIZE
     ENDC
     
-grid_backup_plane
-    ds.b    SCREEN_PLANE_SIZE
-rect_backup_plane
-    ds.b    SCREEN_PLANE_SIZE
-paint_backup_plane
-    ds.b    SCREEN_PLANE_SIZE
-maze_wall_table_copy
-    ds.b    NB_TILE_LINES*NB_TILES_PER_LINE
     
-rollback_paint_zone_buffer:
-    ds.l    NB_ROLLBACK_SLOTS*2
-rollback_paint_zone_buffer_end
-rollback_rectangle_buffer:
-    ds.l    NB_ROLLBACK_SLOTS
-rollback_rectangle_buffer_end
-rollback_dot_table_buffer:
-    ds.l    NB_ROLLBACK_SLOTS
-rollback_dot_table_buffer_end
-pending_paint_rectangle_buffer:
-    ds.l    6
 
-player_move_buffer
-    ds.l    NB_RECORDED_MOVES
-    even
-    
     
     SECTION  S4,CODE
     include ptplayer.s
@@ -5468,351 +5028,23 @@ end_color_copper:
     dc.l    -2
 
   
-    
-copier_left_0
-    incbin  "copier_left_0.bin"
-copier_left_1    
-    incbin  "copier_left_1.bin"
-copier_right_0
-    incbin  "copier_right_0.bin"
-copier_right_1    
-    incbin  "copier_right_1.bin"
-copier_up_0
-copier_down_0
-    incbin  "copier_updown_0.bin"
-copier_up_1
-copier_down_1
-    incbin  "copier_updown_1.bin"
-copier_dead_0
-    incbin  "copier_dead_0.bin"
-copier_dead_1
-    incbin  "copier_dead_1.bin"
-copier_dead_2
-    incbin  "copier_dead_2.bin"
-copier_dead_table
-    dc.l    copier_dead_0,copier_dead_1,copier_dead_2
-
-
-rustler_left_0
-    incbin  "rustler_left_0.bin"
-rustler_left_1    
-    incbin  "rustler_left_1.bin"
-rustler_right_0
-    incbin  "rustler_right_0.bin"
-rustler_right_1    
-    incbin  "rustler_right_1.bin"
-rustler_up_0
-    incbin  "rustler_up_0.bin"
-rustler_up_1
-    incbin  "rustler_up_1.bin"
-rustler_down_0
-    incbin  "rustler_down_0.bin"
-rustler_down_1
-    incbin  "rustler_down_1.bin"
-rustler_dead_0
-    incbin  "rustler_dead_0.bin"
-rustler_dead_1
-    incbin  "rustler_dead_1.bin"
-rustler_dead_2
-    incbin  "rustler_dead_2.bin"
-rustler_dead_table
-    dc.l    rustler_dead_0,rustler_dead_1,rustler_dead_2
 
 empty_16x16_bob
     ds.b    64*4,0
 
 lives
     incbin  "life.bin"
-star
-    incbin  "star.bin"
-
-    
-DECL_POLICE:MACRO
-police\1_frame_table:
-    dc.l    police\1_0
-    dc.l    police\1_1
-    dc.l    police\1_2
-    dc.l    police\1_3
-police\1_end_frame_table:
-police\1_jump_frame_table:
-    dc.l    police\1_jump_0
-    dc.l    police\1_jump_1
-police\1_jump_end_frame_table:
-police\1_hang_frame_table:
-    dc.l    police\1_hang_0
-    dc.l    police\1_hang_1
-police\1_hang_end_frame_table:
-police\1_kill_frame_table:
-    dc.l    police\1_kill_0
-    dc.l    police\1_kill_1
-    dc.l    police\1_kill_0
-    dc.l    police\1_kill_1
-police\1_kill_end_frame_table:
-police\1_fall_frame_table:
-    dc.l    police\1_fall_0
-    dc.l    police\1_fall_1
-    dc.l    police\1_fall_2
-    dc.l    police\1_fall_3
-police\1_fall_end_frame_table:
-police\1_score_frame_table:
-    dc.l    police\1_score_200
-    dc.l    police\1_score_400
-    dc.l    police\1_score_800
-    dc.l    police\1_score_1600
-    dc.l    police\1_score_3200
-    
-    ; all enemies share the same graphics, only the colors are different
-    ; but we need to replicate the graphics 8*4 times because of sprite control word
-police\1_0
-    dc.l    0
-    incbin  "police_0.bin"
-    dc.l    0
-police\1_1
-    dc.l    0
-    incbin  "police_1.bin"
-    dc.l    0
-police\1_2
-    dc.l    0
-    incbin  "police_2.bin"
-    dc.l    0
-police\1_3
-    dc.l    0
-    incbin  "police_3.bin"
-    dc.l    0
-police\1_hang_0
-    dc.l    0
-    incbin  "police_hang_0.bin"
-    dc.l    0
-police\1_hang_1
-    dc.l    0
-    incbin  "police_hang_1.bin"
-    dc.l    0
-police\1_jump_0
-    dc.l    0
-    incbin  "police_jump_0.bin"
-    dc.l    0
-police\1_jump_1
-    dc.l    0
-    incbin  "police_jump_1.bin"
-    dc.l    0
-police\1_kill_0
-police\1_fall_0
-    dc.l    0
-    incbin  "police_fall_0.bin"
-    dc.l    0
-police\1_fall_1
-    dc.l    0
-    incbin  "police_fall_1.bin"
-    dc.l    0
-police\1_fall_2
-    dc.l    0
-    incbin  "police_fall_2.bin"
-    dc.l    0
-police\1_fall_3
-    dc.l    0
-    incbin  "police_fall_3.bin"
-    dc.l    0
-police\1_kill_1
-    dc.l    0
-    incbin  "police_kill.bin"
-    dc.l    0
-police\1_score_200:
-    dc.l    0
-    incbin  "scores_200.bin"
-    dc.l    0
-police\1_score_400:
-    dc.l    0
-    incbin  "scores_400.bin"
-    dc.l    0
-police\1_score_800:
-    dc.l    0
-    incbin  "scores_800.bin"
-    dc.l    0
-police\1_score_1600:
-    dc.l    0
-    incbin  "scores_1600.bin"
-    dc.l    0
-police\1_score_3200:
-    dc.l    0
-    incbin  "scores_3200.bin"
-    dc.l    0
-
-    ENDM
-        
-    DECL_POLICE  1
-    DECL_POLICE  2
-    DECL_POLICE  3
-    DECL_POLICE  4
-    DECL_POLICE  5
-    DECL_POLICE  6
-    DECL_POLICE  7
 
 
-
-    
-DECL_CATTLE:MACRO
-cattle\1_frame_table:
-    dc.l    cattle\1_0
-    dc.l    cattle\1_1
-    dc.l    cattle\1_0
-    dc.l    cattle\1_1
-cattle\1_end_frame_table:
-cattle\1_jump_frame_table:
-    dc.l    cattle\1_jump_0
-    dc.l    cattle\1_jump_1
-cattle\1_jump_end_frame_table:
-cattle\1_hang_frame_table:
-    dc.l    cattle\1_hang_0
-    dc.l    cattle\1_hang_1
-cattle\1_hang_end_frame_table:
-cattle\1_kill_frame_table:
-    dc.l    cattle\1_kill_0
-    dc.l    cattle\1_kill_1
-    dc.l    cattle\1_kill_2
-    dc.l    cattle\1_kill_3
-cattle\1_kill_end_frame_table:
-cattle\1_fall_frame_table:
-    dc.l    cattle\1_fall_0
-    dc.l    cattle\1_fall_1
-    dc.l    cattle\1_fall_2
-    dc.l    cattle\1_fall_3
-cattle\1_fall_end_frame_table:
-cattle\1_score_table:   ; no need to copy score sprites
-    dc.l    police\1_score_200
-    dc.l    police\1_score_400
-    dc.l    police\1_score_800
-    dc.l    police\1_score_1600
-    dc.l    police\1_score_1600
-    dc.l    police\1_score_3200
-
-    
-    ; all enemies share the same graphics, only the colors are different
-    ; but we need to replicate the graphics 8*4 times because of sprite control word
-cattle\1_0
-    dc.l    0
-    incbin  "cattle_0.bin"
-    dc.l    0
-cattle\1_1
-    dc.l    0
-    incbin  "cattle_1.bin"
-    dc.l    0
-cattle\1_hang_0
-    dc.l    0
-    incbin  "cattle_hang_0.bin"
-    dc.l    0
-cattle\1_hang_1
-    dc.l    0
-    incbin  "cattle_hang_1.bin"
-    dc.l    0
-cattle\1_kill_2
-cattle\1_jump_0
-    dc.l    0
-    incbin  "cattle_jump_0.bin"
-    dc.l    0
-cattle\1_kill_3
-cattle\1_jump_1
-    dc.l    0
-    incbin  "cattle_jump_1.bin"
-    dc.l    0
-cattle\1_fall_0
-    dc.l    0
-    incbin  "cattle_fall_0.bin"
-    dc.l    0
-cattle\1_kill_0
-cattle\1_fall_1
-    dc.l    0
-    incbin  "cattle_fall_1.bin"
-    dc.l    0
-cattle\1_fall_2
-    dc.l    0
-    incbin  "cattle_fall_2.bin"
-    dc.l    0
-cattle\1_fall_3
-    dc.l    0
-    incbin  "cattle_fall_3.bin"
-    dc.l    0
-cattle\1_kill_1
-    dc.l    0
-    incbin  "cattle_kill.bin"
-    dc.l    0
-
-    ENDM
-        
-    DECL_CATTLE  1
-    DECL_CATTLE  2
-    DECL_CATTLE  3
-    DECL_CATTLE  4
-    DECL_CATTLE  5
-    DECL_CATTLE  6
-    DECL_CATTLE  7
-    
-
-score_5000:
-    dc.l    0
-    incbin  "scores_5000.bin"
-    dc.l    0
-
-
-thief_attacks_raw
-    incbin  "thief_attacks.raw"
-    even
-thief_attacks_raw_end
-
-
-credit_raw
-    incbin  "credit.raw"
-    even
-credit_raw_end
-
-
-
-lose_bonus_raw
-    incbin  "lose_bonus.raw"
-    even
-lose_bonus_raw_end
-
-
-ping_raw
-    incbin  "ping.raw"
-    even
-ping_raw_end
-enemy_hit_raw
-    incbin  "enemy_hit.raw"
-    even
-enemy_hit_raw_end
-enemy_killed_raw
-    incbin  "enemy_killed.raw"
-    even
-enemy_killed_raw_end
 extra_life_raw
     incbin  "extra_life.raw"
     even
 extra_life_raw_end
-enemy_falling_raw
-    incbin  "enemy_falling.raw"
-    even
-enemy_falling_raw_end
+
 player_killed_raw
     incbin  "player_killed.raw"
     even
 player_killed_raw_end
-
-eat_raw
-    incbin  "eat.raw"
-    even
-eat_raw_end
-filled_raw
-    incbin  "filled.raw"
-    even
-filled_raw_end
-paint_raw
-    incbin  "paint.raw"
-    even
-paint_raw_end
-jump_raw
-    incbin  "jump.raw"
-    even
-jump_raw_end
 
     even
 

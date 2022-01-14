@@ -8,9 +8,30 @@ def extract_block(img,x,y):
     return tuple(img.getpixel((x+i,y+j)) for j in range(tile_height) for i in range(tile_width))
 
 
+main_palette = [(0,0,0),
+                (240,64,0),     # dark orange
+                (240,240,0),    # yellow
+                (1,208,208),    # cyan
+                (240,240,240),  # white
+                (240,0,0),  # red
+                (0,240,0),  # green
+                (128,0,208), # purple
+                ]
+
+# pad
+main_palette += [(0,0,0)] * (16-len(main_palette))
+
 palette = [(0,0,0),(240,0,0),(0,0,240),(240,240,0)]
 
-def process_map(level_index):
+bitplanelib.palette_dump(main_palette,r"../src/palette.s",as_copperlist=False)
+
+tile_dict = {}
+tile_id = 1
+
+max_level = 1
+dump_tiles = False
+
+for level_index in range(1,max_level+1):
     img = Image.open("scramble_gamemap_l{}.png".format(level_index))
 
 
@@ -22,11 +43,8 @@ def process_map(level_index):
 
     nb_h_tiles = img.size[0]//tile_width
     nb_v_tiles = img.size[1]//tile_height
-
-    tile_dict = {}
-    tile_id = 1
-
     tile_id_to_xy = {}
+
 
     matrix = []
     for xtile in range(0,nb_h_tiles):
@@ -49,15 +67,13 @@ def process_map(level_index):
                 column.append({"tile_id":tinfo,"x":x,"y":y})
         matrix.append(column)
 
-        for k,(x,y) in tile_id_to_xy.items():
-            outname = "tiles/tile_{}.png".format(k)
-            ti = Image.new("RGB",(tile_width,tile_height))
-            ti.paste(img,(-x,-y))
-            ti.save(outname)
+        if dump_tiles:
+            for k,(x,y) in tile_id_to_xy.items():
+                outname = "tiles/tile_{}.png".format(k)
+                ti = Image.new("RGB",(tile_width,tile_height))
+                ti.paste(img,(-x,-y))
+                ti.save(outname)
 
-    return matrix,{v:k for k,v in tile_dict.items()}
-
-m,blocks = process_map(1)
 
 # dump
 
