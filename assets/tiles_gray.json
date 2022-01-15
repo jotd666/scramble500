@@ -1,0 +1,21 @@
+{
+"source":"sprites.png",
+"x_offset":0,
+"y_offset":0,
+ "width" : 16,
+ "height" : 16,
+ "horizontal" : true,
+ "objects":[
+ {"name":"rocket_1",
+     "generate_mask":true,
+ "start_x":1,
+ "start_y":115
+ },
+{"name":"rocket_2",
+     "generate_mask":true,
+ "start_x":1,
+ "start_y":133
+ }
+ 
+ ]
+}
