@@ -55,7 +55,6 @@ INTERRUPTS_ON_MASK = $E038
 
 	STRUCTURE	Player,0
 	STRUCT      BaseCharacter1,Character_SIZEOF
-    UWORD   prepost_turn
     LABEL   Player_SIZEOF
     
 	STRUCTURE	Enemy,0
@@ -65,18 +64,12 @@ INTERRUPTS_ON_MASK = $E038
     APTR     copperlist_address
     APTR     color_register
     UWORD   speed_table_index
-    UWORD   previous_xpos
-    UWORD   previous_ypos
     UWORD   score_frame
 	UWORD	respawn_delay
     UWORD    mode_timer     ; number of 1/50th to stay in the current mode (thief only)
     UWORD    mode           ; current mode
     UWORD    previous_mode           ; previous mode
     UWORD    score_display_timer
-    UWORD    fall_hang_timer
-    UWORD    fall_hang_toggle
-	UBYTE	 fright_mode
-	UBYTE	 pad
 	LABEL	 Enemy_SIZEOF
     
     ;Exec Library Base Offsets
@@ -97,7 +90,7 @@ MODE_KILL = 1<<2
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -155,11 +148,12 @@ ORIGINAL_TICKS_PER_SEC = 60
 NB_BYTES_PER_LINE = 40
 NB_BYTES_PER_MAZE_LINE = 26
 BOB_16X16_PLANE_SIZE = 64
+BOB_32X16_PLANE_SIZE = 96
 BOB_8X8_PLANE_SIZE = 16
 MAZE_PLANE_SIZE = NB_BYTES_PER_LINE*NB_LINES
 NB_LINES = 31*8
 SCREEN_PLANE_SIZE = 40*NB_LINES
-NB_PLANES   = 4
+NB_PLANES   = 6
 
 NB_TILES_PER_LINE = NB_BYTES_PER_MAZE_LINE
 NB_TILE_LINES = 27
@@ -358,9 +352,9 @@ Start:
     
     
     moveq #NB_PLANES-1,d4
-    lea	bitplanes,a0              ; adresse de la Copper-List dans a0
+    lea	bitplanes,a0              ; copperlist address
     move.l #screen_data,d1
-    move.w #bplpt,d3        ; premier registre dans d3
+    move.w #bplpt,d3        ; first register in d3
 
 		; 8 bytes per plane:32 + end + bplcontrol
 .mkcl:
@@ -372,17 +366,11 @@ Start:
     addq.w #2,d3              ; next register
     swap d1
     move.w d1,(a0)+           ; 
-    add.l #SCREEN_PLANE_SIZE,d1       ; next plane of maze
+    add.l #SCREEN_PLANE_SIZE,d1       ; next plane
 
     dbf d4,.mkcl
     
 
-    lea game_palette,a0
-    lea _custom+color,a1
-    move.w  #31,d0
-.copy
-    move.w  (a0)+,(a1)+
-    dbf d0,.copy
 ;COPPER init
 		
     move.l	#coplist,cop1lc(a5)
@@ -394,7 +382,9 @@ Start:
     move.w #$30C1,diwstop(a5)             ; la fenêtre écran
     move.w #$0038,ddfstrt(a5)             ; et le DMA bitplane
     move.w #$00D0,ddfstop(a5)
-    move.w #$4200,bplcon0(a5) ; 4 bitplanes
+	
+	; dual playfield
+    move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
     clr.w bplcon1(a5)                     ; no scrolling
     clr.w bplcon2(a5)                     ; pas de priorité
     move.w #0,bpl1mod(a5)                ; modulo de tous les plans = 40
@@ -405,6 +395,9 @@ intro:
     move.w  #$7FFF,(intena,a5)
     move.w  #$7FFF,(intreq,a5)
 
+    lea menu_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette	
     
     bsr hide_sprites
 
@@ -636,6 +629,20 @@ intro:
     moveq.l #0,d0
     rts
 
+
+; < A0: palette
+; < D0: nb colors
+load_palette
+    lea _custom+color,a1
+	move.w	d0,current_nb_colors
+	move.l	a0,current_palette
+    subq.w	#1,d0
+	
+.copy
+    move.w  (a0)+,(a1)+
+    dbf d0,.copy
+	rts
+	
 wait_bof
 	move.l	d0,-(a7)
 .wait	move.l	$dff004,d0
@@ -672,20 +679,19 @@ clear_screen
 .cl
     clr.l   (a2)+
     dbf d1,.cl
-    add.l   #SCREEN_PLANE_SIZE,a1
+    add.w   #SCREEN_PLANE_SIZE,a1
     dbf d0,.cp
     rts
 
 
 clear_playfield_planes
     lea screen_data,a1
+	move.w	#NB_PLANES-2,d0
+.loop
     bsr clear_playfield_plane
     add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bra clear_playfield_plane
+	dbf		d0,.loop	
+	; continues to plane clear routine
     
 ; < A1: plane start
 clear_playfield_plane
@@ -698,7 +704,7 @@ clear_playfield_plane
     clr.l   (a0)+
     dbf d1,.cl
     clr.w   (a0)
-    add.l   #NB_BYTES_PER_LINE,a1
+    add.w   #NB_BYTES_PER_LINE,a1
     dbf d0,.cp
     movem.l (a7)+,d0-d1/a0-a1
     rts
@@ -724,20 +730,23 @@ clear_maze_plane
 .cl
     clr.l   (a0)+
     dbf d1,.cl
-    add.l   #NB_BYTES_PER_LINE,a1
+    add.w   #NB_BYTES_PER_LINE,a1
     dbf d0,.cp
     movem.l (a7)+,d0-d1/a0-a1
     rts
 
     
 init_new_play:
-	clr.b	previous_move
+    lea objects_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette	
+	
+	; temp red/yellow/blue palette for tiles
+	lea	_custom+color+16,a0
+	move.l	#$F00,(a0)+
+	move.l	#$F0FF0,(a0)+
+	
     clr.l   state_timer
-    IFD BONUS_SCREEN_TEST
-    st.b	next_level_is_bonus_level
-    ELSE
-    clr.b   next_level_is_bonus_level
-    ENDC
  
     move.b  #START_NB_LIVES,nb_lives
     clr.b   new_life_restart
@@ -761,7 +770,6 @@ init_new_play:
 
 	
 .no_demo
-    clr.b   bonus_sprites
     move.l  #START_SCORE,score
     clr.l   previous_score
     clr.l   displayed_score
@@ -877,9 +885,6 @@ init_enemies
 
 
 init_player:
-	clr.w	leaving_paint_tile_x
-	clr.w	leaving_paint_tile_y
-    clr.l   previous_valid_direction
     clr.w   death_frame_offset
 	
     tst.b   new_life_restart
@@ -889,19 +894,22 @@ init_player:
     lea player(pc),a0
 
     
-    move.w  #NB_TILES_PER_LINE*4-2,xpos(a0)
-	move.w	#Y_MAX,ypos(a0)
+    move.w  #0,xpos(a0)
+	move.w	#0,ypos(a0)
     
-    ;move.w  #0*4,xpos(a0)
-	;move.w	#192,ypos(a0)
-    
-    
-	move.w 	#LEFT,direction(a0)
+    move.w	level_number(pc),d0
+	lea		filling_tile_table(pc),a0
+	move.b	(a0,d0.w),filling_tile
+	add.w	d0,d0
+	add.w	d0,d0
+	lea		level_tiles(pc),a0
+	move.l	(a0,d0.w),map_pointer
+	
 
     clr.w  speed_table_index(a0)
     move.w  #-1,h_speed(a0)
     clr.w   v_speed(a0)
-    clr.w   prepost_turn(a0)
+    
     move.w  #0,frame(a0)
 
     
@@ -928,11 +936,9 @@ init_player:
     ENDC
 
     clr.w   record_input_clock                      ; start of time
-    
 
     move.w  #-1,player_killed_timer
-    clr.w   next_enemy_iteration_score
-    clr.w   fright_timer    
+ 
 
 
     
@@ -1025,27 +1031,7 @@ draw_debug
     bsr write_decimal_number
     move.l  d4,d0
     ;;
-    add.w  #8,d1
-    lea .ph(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w previous_valid_direction(pc),d2
-    move.w  #5,d3
-    bsr write_decimal_number
-    move.w  #DEBUG_X,d0
-    add.w  #8,d1
-    move.l  d0,d4
-    lea .pv(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w previous_valid_direction+2(pc),d2
-    move.w  #3,d3
-    bsr write_decimal_number
-    move.l  d4,d0
+
 	
         IFEQ    1
     add.w  #8,d1
@@ -1072,52 +1058,7 @@ draw_debug
     ENDC
     ;;
     ;;
-    add.w  #8,d1
-    lea .ato(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w  attack_timeout(pc),d2
-    move.w  #4,d3
-    bsr write_decimal_number
-	
-    add.w  #8,d1
-    lea .pmi(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w  player_move_index(pc),d2
-    move.w  #4,d3
-    bsr write_decimal_number
-    move.w  #DEBUG_X,d0
-    add.w  #8,d1
-    move.l  d0,d4
-    lea .tmi(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w thief_move_index(pc),d2
-    move.w  #4,d3
-    bsr write_decimal_number
-    move.l  d4,d0
-    
-    add.w  #8,d1
-    lea .diff(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w  player_move_index(pc),d2
-    sub.w thief_move_index(pc),d2
-    move.w  #4,d3
-    bsr write_decimal_number
-    move.l  d4,d0
-    ;;
 
-    clr.l   d2
 
     rts
     
@@ -1129,8 +1070,6 @@ draw_debug
 		dc.b	"PREVH ",0
 .pv
 		dc.b	"PREVV ",0
-.ato
-		dc.b "ATO ",0
 .tx
         dc.b    "TX ",0
 .ty
@@ -1142,24 +1081,12 @@ draw_debug
         dc.b    "TMI ",0
 .diff
         dc.b    "DIFF ",0
-.bottom_rect_string
-        dc.b    "R2 20 ",0
-.bonus
-        dc.b    "BT ",0
-.dottable:
-        dc.b    "DOTS ",0
-.nbrects
-		dc.b	"NBRECTS ",0
+
+
+
         even
 
 draw_enemies:
-    lea enemies(pc),a0
-    move.w  nb_enemies_but_thief(pc),d7   ; +thief
-.gloop
-    bsr .draw_enemy
-.next_ghost_iteration
-    add.l   #Enemy_SIZEOF,a0
-    dbf d7,.gloop
     
     rts
 
@@ -1226,14 +1153,10 @@ PLAYER_ONE_Y = 102-14
     
     bra.b   .draw_complete
 .playing
-    tst.b   delete_last_star_message
-    beq.b   .no_del_star
-    bsr delete_last_star
-    clr.b   delete_last_star_message
-.no_del_star
-
     bsr draw_player
-    bsr draw_enemies
+
+	; TEMP TEMP
+	bsr	draw_tiles
    
     
 .after_draw
@@ -1278,7 +1201,58 @@ stop_sounds
     bra _mt_end
 
 
-
+draw_tiles:
+	move.l	map_pointer(pc),a6
+	; upper part
+	move.w	(a6)+,d7
+	beq.b	.lower
+	bmi.b	.end
+	nop
+	blitz ; TODO LEVEL 2
+.lower
+	move.w	(a6)+,d7
+	beq.b	.out	; not really possible, though
+	subq.w	#1,d7
+	lea		screen_data+SCREEN_PLANE_SIZE,a3	; 2nd playfield
+	lea		tiles,a4
+	move.w	(a6)+,d0	; y start
+	lea		mul40_table(pc),a2
+	add.w	d0,d0
+	add.w	(a2,d0.w),a3	; offset
+	move.l	a3,a1
+	add.w	#20,a1	; TEMP
+.lowerloop:
+	move.w	(a6)+,d0	; tile id
+	lsl.w	#6,d0		; times 64
+	lea		(a4,d0.w),a0	; graphics
+	clr.w	d0
+	clr.w	d1
+	moveq.l #-1,d3
+    move.w  #4,d2       ; 16 pixels + 2 shift bytes
+    move.w  #8,d4      ; 8 pixels height
+	; 2 planes
+    lea $DFF000,A5
+    movem.l d0-d6/a0-a4/a6,-(a7)
+    bsr blit_plane_any_internal	
+    movem.l (a7),d0-d6/a0-a4/a6
+	add.w	#SCREEN_PLANE_SIZE*2,a1	; other plane
+	add.w	#32,a0	; next plane
+    bsr blit_plane_any_internal	
+    movem.l (a7)+,d0-d6/a0-a4/a6
+	
+	add.w	#NB_BYTES_PER_LINE*8,a1
+	dbf		d7,.lowerloop
+	
+.out
+	rts
+	
+.end
+	blitz
+	rts
+	
+blit_tile
+    rts
+	
 ; < D2: highscore
 draw_high_score
     move.w  #232+16,d0
@@ -1454,12 +1428,12 @@ draw_intro_screen
     ; not the same configuration as game sprites:
     ; each sprite is there simultaneously
 
-    lea game_palette+32(pc),a0  ; the sprite part of the color palette 16-31    
+    ;;lea game_palette+32(pc),a0  ; the sprite part of the color palette 16-31    
     moveq.w #0,d0
     ; first sprite palette
     bsr .load_palette
 
-    lea game_palette+32+24(pc),a0  ; we cheat, use sprite 4 with palette of 6-7
+    ;;lea game_palette+32+24(pc),a0  ; we cheat, use sprite 4 with palette of 6-7
     moveq.w #2,d0
     ; thief guard sprite palette
     bsr .load_palette
@@ -1960,25 +1934,8 @@ clear_plane_any_blitter_internal:
     rts
 
     
-    
-delete_last_star
-    move.b  nb_stars(pc),d7
-    ext     d7
-    lea	screen_data+STARS_OFFSET,a1
-    add.w   d7,a1
-    moveq   #3,d2
-.ploop
-    move.l  a1,a2
-    REPT    8
-    clr.b   (a2)
-    add.w   #NB_BYTES_PER_LINE,a2
-    ENDR
-    add.w   #SCREEN_PLANE_SIZE,a1
-    dbf     d2,.ploop    
-    rts
-    
 draw_fuel:
-    move.b  nb_stars(pc),d7
+    ;;move.b  nb_stars(pc),d7
     subq.b  #1,d7
     ext     d7    
 .lloop
@@ -1996,16 +1953,7 @@ draw_fuel:
     dbf     d2,.ploop
     dbf d7,.lloop
 .out
-    lea     .jump(pc),a0
-    move.w  #(NB_BYTES_PER_MAZE_LINE-9)*8,d0
-    move.w  #MAZE_HEIGHT+18,d1
-    move.w  #$0F0,d2
-    bsr     write_color_string
-    rts
-    
-.jump
-        dc.b    "JUMP",0
-        even
+	rts
         
 LIVES_OFFSET = (MAZE_HEIGHT+18)*NB_BYTES_PER_LINE+1
 
@@ -2337,13 +2285,7 @@ level2_interrupt:
 .no_debug
     cmp.b   #$54,d0     ; F5
     bne.b   .no_bonus
-    ; activate the "power pill" sequence or shut it
-    tst.b  enemies+fright_mode
-    bne.b   .shut_power
-    move.w  #1,can_eat_enemies_mode_pending
-    bra.b   .no_playing
-.shut_power
-	move.w	#1,power_state_counter
+	nop
 .no_bonus
     cmp.b   #$55,d0     ; F6
     bne.b   .no_longer_bonus
@@ -2358,19 +2300,11 @@ level2_interrupt:
 .no_add_to_score
     cmp.b   #$57,d0     ; F8
     bne.b   .no_maze_dump
-    tst.l   _resload
-    beq.b   .no_maze_dump
-    movem.l d0-d1/a0-a2,-(a7)
-    move.l maze_wall_table(pc),a1
-    lea     maze_dump_file,a0
-    move.l  _resload(pc),a2
-    move.l  #26*27,D0
-    jsr     (resload_SaveFile,a2)
-    movem.l (a7)+,d0-d1/a0-a2
+	nop
 .no_maze_dump
     cmp.b   #$58,d0     ; F9
     bne.b   .no_attack
-    move.w  #1,attack_timeout
+    nop
 .no_attack
 
 .no_playing
@@ -2536,32 +2470,7 @@ update_all
     bne.b   .out
     addq.l   #1,state_timer
 .out
-    ; are we already in the bottom?
-    tst.w   bottom_reached
-    bne.b   .last_timeout
-    ; stop music whatever the outcome
-    bsr stop_sounds
-    ; bottom is reached
-    ; see if won
-    ; arm timeout
-    lea enemies+Enemy_SIZEOF(pc),a4
-	
-    ; win
-     move.w  #ORIGINAL_TICKS_PER_SEC*4,last_bonus_timeout
-    move.l  #500,d0     ; 5000 points
-    bra add_to_score
 
-.last_timeout
-    move.w  last_bonus_timeout(pc),d0
-    cmp.w   #ORIGINAL_TICKS_PER_SEC*2,d0
-    bne.b   .no_stopmus
-    
-    bsr stop_sounds
-.no_stopmus
-    subq.w  #1,last_bonus_timeout
-    bne.b   .continue
-    ; next level
-    bsr .bonus_level_completed
 .continue
     rts
     
@@ -2573,7 +2482,6 @@ update_all
     bsr     stop_sounds
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
-     clr.b  bonus_sprites
      rts
      
 .game_over
@@ -2591,31 +2499,18 @@ update_all
     ; update
 .playing
 	tst.b	level_completed_flag
-	beq.b	.no_completed1
+	beq.b	.no_completed
 	clr.b	level_completed_flag
 
-	; avoids bonus music when level is completed with
-	; one of the corners
-	clr.w	can_eat_enemies_mode_pending
     bsr stop_sounds
 
-    st.b    next_level_is_bonus_level
-    move.w  #ORIGINAL_TICKS_PER_SEC*6,completed_music_timer
-.no_completed1
-    move.w   completed_music_timer(pc),d0
-    beq.b   .no_completed2
-    subq.w  #1,d0
-    move.w  d0,completed_music_timer
-    bne.b   .completed_music_playing
-    
-    bsr stop_sounds
 	
     move.w  #STATE_NEXT_LEVEL,current_state
     clr.l   state_timer     ; without this, bonus level isn't drawn
     bsr     hide_sprites    ; hide sprites as bonus level only uses 1 or 2 sprites
 .completed_music_playing
     rts
-.no_completed2
+.no_completed
 
     tst.l   state_timer
     bne.b   .no_first_tick
@@ -2672,6 +2567,8 @@ start_music_countdown
 ; pretty fast specially when 7 enemies are around
 
 check_collisions
+	rts
+	
     lea player(pc),a3
     move.l  xpos(a3),d0	; get X<<16 | Y
 	moveq.l	#3,d3		; pre-load shift value
@@ -2679,7 +2576,7 @@ check_collisions
 	move.w	#$1FFF,d1	; pre-load mask value
 	and.w	d1,d0	; remove shifted X bits that propagated to Y LSW
     lea enemies(pc),a4
-    move.w  nb_enemies_but_thief(pc),d7    ; plus one
+    ;;move.w  nb_enemies_but_thief(pc),d7    ; plus one
 .gloop
 	; this is probably much faster than shifting X & Y to compute tile
     move.l  xpos(a4),d2		; get X and Y, same as for player (see above)
@@ -2715,21 +2612,17 @@ update_intro_screen
     bne.b   .no_first
     
 .first
-	move.l	speed_table(pc),global_speed_table
     tst.w   high_score_position
     bpl.b   .second
     
     move.b  #1,intro_step
     st.b    intro_state_change
 
-    move.w  #1,nb_enemies_but_thief
-    st.b    bonus_sprites
     clr.l	d0
     bsr init_enemies
     
     lea enemies+Enemy_SIZEOF(pc),a0
 
-    move.l   #-1,previous_xpos(a0)
 	lea		.cattle_x_table(pc),a1
 	; pick a random start position
 	bsr		random
@@ -2957,21 +2850,6 @@ animate_enemy
     rts
 
 
-get_next_speed_index
-    move.w  speed_table_index(a4),d0
-    move.w  d0,d1
-    add.w   #1,d0
-    cmp.w   #20,d0
-    bne.b   .no_wrap
-    clr.w   d0
-.no_wrap
-    move.w  d0,speed_table_index(a4)
-    
-    move.l  global_speed_table(pc),a0
-    move.b  (a0,d1.w),d0
-    rts    
-    
-
 
 
     
@@ -3009,13 +2887,6 @@ update_player
     move.w  d0,death_frame_offset   ; 0,4,8
     rts
 .alive
-    tst.w   fright_timer
-    beq.b   .no_fright1
-    sub.w   #1,fright_timer
-    bne.b   .no_fright1
-    ; fright mode just ended: resume normal sound loop
-    nop
-.no_fright1
 
     
 .okmove
@@ -3111,34 +2982,12 @@ update_player
     move.w  #1,v_speed(a4)
 .no_down    
 .out
-    bsr     .move_attempt
-    tst.w   d5
-    beq.b   .no_move
+  
     
-    cmp.w   #3,d5
-    beq.b   .valid_move
-    ; invalid move
-    ; first pass: check if there's an intersection nearby past the player
-    ; for that we have to check against every facing direction
-    move.w  direction(a4),d6
-    lea     dircheck_table(pc),a0
-    move.l  (a0,d6.w),a0
-    jsr     (a0)
     
-    ; second pass just try to see if latest move would work ("corner cut")
-    move.l  previous_valid_direction(pc),d6
-    beq.b   .no_move
-	; it would work, store it
     move.l  d6,h_speed(a4)
-    bsr     .move_attempt
-    cmp.w   #3,d5
-    beq.b   .valid_move
-    ; nothing to do, previous move wasn't valid
-    bra.b   .no_move
-.valid_move
-	; move is valid
-    ; store for later
-    move.l  h_speed(a4),previous_valid_direction
+
+   
     bsr animate_player    
     move.w  d2,xpos(a4)
     move.w  d3,ypos(a4)
@@ -3152,180 +3001,8 @@ update_player
   
     rts
 
-    
-.move_attempt
-    ; cache xy in regs / save them
-    move.w  xpos(a4),d2
-    move.w  ypos(a4),d3
-
-    clr.w   d5
-    ;;move.w  direction(a4),d6
-    ; test if player has requested an "up" move
-    move.w  v_speed(a4),d6
-    beq.b   .no_vertical
-    bset    #0,d5   ; note that we attempted a move
-    ; up/down move requested
-    move.w  d2,d0
-    and.b   #7,d0
-    bne.b   .no_vertical    ; invalidated: not aligned in x
-    move.w  d2,d0
-    move.w  d3,d1
-    add.w   d6,d1  ; change y
-    bmi.b   .no_vertical
-    cmp.w   #Y_MAX+1,d1
-    bcc.b   .no_vertical
-    tst.w   d6
-    bmi.b   .up1
-    ; to the right: add 7
-    addq.w  #7,d1
-.up1
-    bsr     is_location_legal
-    tst.b   d0
-    beq.b   .no_vertical
-    ; validate
-
-    add.w   d6,d3  ; change y
-    bset    #1,d5
-    tst.w   d6
-    bmi.b   .up
-    move.w  #DOWN,direction(a4)
-    bra.b   .no_vertical
-.up
-    move.w  #UP,direction(a4)
-.no_vertical
-    move.w   h_speed(a4),d6
-    beq.b   .no_horizontal
-    bset    #0,d5   ; note that we attempted a move
-    ; left/right move requested
-    move.w  d3,d1
-    and.b   #7,d1
-    bne.b   .no_horizontal    ; invalidated: not aligned in y
-    move.w  d2,d0
-    move.w  d3,d1
-    add.w   d6,d0  ; change x
-    bmi.b   .no_horizontal
-    cmp.w   #X_MAX+1,d0
-    bcc.b   .no_horizontal
-    tst.w   d6
-    bmi.b   .left1
-    ; to the right: add 7
-    addq.w  #7,d0
-.left1
-    bsr     is_location_legal
-    tst.b   d0
-    beq.b   .no_horizontal
-    ; validate
-    add.w   d6,d2  ; change x
-    bset    #1,d5
-    tst.w   d6
-    bmi.b   .left
-    move.w  #RIGHT,direction(a4)
-    bra.b   .no_horizontal
-.left
-    move.w  #LEFT,direction(a4)
-.no_horizontal
-    rts
-
-dircheck_table
-    dc.l    dircheck_right
-    dc.l    dircheck_left
-    dc.l    dircheck_up
-    dc.l    dircheck_down
-
-CORRECTIVE_TEST_OFFSET = 8
 
 	
-; d2 contains X
-; d3 contains Y
-; we use d4
-; those routines switch signs on previous_valid_direction if
-; game senses that the player has missed a turn
-; which complements the "continue" move when a turn is anticipated
-;
-; both mechanisms ensure that the player never misses a turn, which can
-; be fatal in that kind of game
-;
-; this is still not right
-dircheck_right
-    move.w  v_speed(a4),d4
-    beq.b   just_rts
-    move.w  d2,d0
-    move.w  d3,d1
-    ; align on previous x tile
-    and.w   #$F8,d0
-    bra.b	dircheck_horiz
-	
-dircheck_left
-    move.w  v_speed(a4),d4
-    beq.b   just_rts
-    move.w  d2,d0
-    move.w  d3,d1
-    ; align on previous x tile
-    addq.w   #8,d0
-dircheck_horiz    
-    cmp.w   #1,d4
-    bne.b   .no_down
-    addq.w  #CORRECTIVE_TEST_OFFSET,d1
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b   .reverse_horiz_direction
-    rts
-.no_down
-    ; has to be "up"
-    ; up attempt
-    subq.w  #CORRECTIVE_TEST_OFFSET,d1
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b	.reverse_horiz_direction
-.no_up
-    rts
-
-.reverse_horiz_direction
-    ; looks like player went past the "up" intersection: change direction
-    neg.w  previous_valid_direction
-	rts
-	
-dircheck_up
-    move.w  h_speed(a4),d4
-    beq.b   just_rts
-    move.w  d2,d0
-    move.w  d3,d1
-    ; align on lower y tile
-    
-    addq.w   #8,d1
-	bra.b	dircheck_vert
-	
-dircheck_down
-    move.w  h_speed(a4),d4
-    beq.b   just_rts
-    move.w  d2,d0
-    move.w  d3,d1
-    ; align on upper y tile
-    
-    and.w   #$F8,d1
-
-dircheck_vert
-    cmp.w   #1,d4
-    bne.b   .no_right
-    addq.w  #CORRECTIVE_TEST_OFFSET,d0
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b   .reverse_vert_direction
-    rts
-.no_right
-    ; has to be "left"
-    ; left attempt
-    subq.w  #CORRECTIVE_TEST_OFFSET,d0
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b   .reverse_vert_direction
-    rts	
-
-.reverse_vert_direction
-    ; looks like player went past the "up" intersection: change direction
-    neg.w  previous_valid_direction+2
-	rts    
-
 just_rts
 	rts
 	
@@ -3394,10 +3071,8 @@ animate_player
 
 
     
-; the palette is organized so we only need to blit planes 0, 2 and 3 (not 1)
-; plane 1 contains dots so it avoids to redraw it
-; plane 0 contains the grid, that has been backed up
-; plane 3 contains filled up rectangles, needs backing up too
+; draw player, dual playfield, skipping 2 planes each time
+
 draw_player:
     move.l  previous_player_address(pc),d5
     bne.b   .not_first_draw
@@ -3420,22 +3095,17 @@ draw_player:
     move.w  death_frame_offset(pc),d0
     add.w   d0,a0       ; proper frame to blit
     move.l  (a0),a0
-    bra.b   .pacblit
+    bra.b   .shipblit
 .normal
-	nop
 	; TODO: get blit data in A0
 	; using frame(a2)
-.pacblit
+	lea		ship_1,a0
+.shipblit
     move.w  xpos(a2),d3    
-	addq.w	#1,d3	; X-offset
     move.w  ypos(a2),d4
-    ; center => top left
-    moveq.l #-1,d2 ; mask
 
     lea	screen_data,a1
 
-    ; apply X offset
-    addq.w #2,d0
     
     move.l  a1,a6
     move.w d3,d0
@@ -3443,8 +3113,8 @@ draw_player:
 
     ; plane 0
     move.l  a1,a2
-    lea (BOB_16X16_PLANE_SIZE*4,a0),a3
-    bsr blit_plane_cookie_cut
+    lea (BOB_32X16_PLANE_SIZE*3,a0),a3
+    bsr blit_ship_cookie_cut
     move.l  a1,previous_player_address
     
     ; remove previous second plane before blitting the new one
@@ -3453,56 +3123,41 @@ draw_player:
     bmi.b   .no_erase2
         
 	; clear plane 2
-
+	nop
 .no_erase2    
 
-    lea	screen_data+SCREEN_PLANE_SIZE,a1
-    move.l  a1,a2   ; just restored background
-    ; plane 2
-    ; a3 is already computed from first cookie cut blit
-    lea (BOB_16X16_PLANE_SIZE,a0),a0
-    move.l  a1,a6
-    move.w d3,d0
-    move.w d4,d1
-
-    bsr blit_plane_cookie_cut
-    lea (BOB_16X16_PLANE_SIZE,a0),a0
-    bra.b   .plane_1
-.no_plane_1
-    
-    lea (BOB_16X16_PLANE_SIZE*2,a0),a0
-.plane_1
     lea	screen_data+SCREEN_PLANE_SIZE*2,a1
     move.l  a1,a2   ; just restored background
     ; plane 2
     ; a3 is already computed from first cookie cut blit
+    lea (BOB_32X16_PLANE_SIZE,a0),a0
     move.l  a1,a6
     move.w d3,d0
     move.w d4,d1
 
-    bsr blit_plane_cookie_cut
-    
-    ; delete third plane too
-    tst.l   d5    
-    bmi.b   .no_erase3
-    
-    ; clear plane 3
-    lea   screen_data+SCREEN_PLANE_SIZE*3,a1
-    add.l   d5,a1
-    ; now copy a rectangle of the saved screen
-    REPT    18
-    clr.l   ((REPTN-1)*NB_BYTES_PER_LINE,a1)
-    ENDR
-
-.no_erase3
-    
+    bsr blit_ship_cookie_cut
+    lea (BOB_32X16_PLANE_SIZE,a0),a0
+ 
+    lea	screen_data+SCREEN_PLANE_SIZE*4,a1
+    move.l  a1,a2   ; just restored background
+    ; plane 2
+    ; a3 is already computed from first cookie cut blit
+    move.l  a1,a6
     move.w d3,d0
     move.w d4,d1
 
-    lea (SCREEN_PLANE_SIZE,a6),a1
-    lea (BOB_16X16_PLANE_SIZE,a0),a0    ; next plane for bitmap
-    ; plane 3
-    bra blit_plane
+    bra blit_ship_cookie_cut
+    
+blit_ship_cookie_cut
+    movem.l d2-d7/a2-a5,-(a7)
+    lea $DFF000,A5
+	moveq.l #-1,d3	;masking of first/last word    
+    move.w  #6,d2       ; 32 pixels + 2 shift bytes
+    move.w  #16,d4      ; 16 pixels height   
+    bsr blit_plane_any_internal_cookie_cut
+    movem.l (a7)+,d2-d7/a2-a5
+	rts
+	
 
     
 ; < d0.w: x
@@ -3554,49 +3209,6 @@ ye  set ys+16       ; size = 16
   endr
 
  
-    
-; what: returns which rectangle(s) contain the current x,y
-; 
-; args:
-; < d0 : x (screen coords)
-; < d1 : y
-; > d4,d5,d6: pointers on linked rectangles (either can be NULL)
-; trashes: none
-
-get_dot_rectangles:
-    cmp.w   #Y_MAX+1,d1
-    bcc.b   .out_of_bounds
-    cmp.w   #X_MAX+1,d0
-    bcc.b   .out_of_bounds
-    ; no need to test sign (bmi) as bcc works unsigned so works on negative!
-    ; apply x,y offset
-    add.w   #4,d1       ; center
-    
-    lsr.w   #3,d1       ; 8 divide : tile
-    move.l  a0,-(a7)
-    lea     mul26_table(pc),a0
-    add.w   d1,d1
-    move.w  (a0,d1.w),d1    ; times 26
-    lsl.w   #4,d1   ; times 16 (4 32 bit longwords per slot)
-    move.l dot_table(pc),a0
-    add.w   d1,a0
-    and.b   #$F8,d0   ; align on 8 (2 32 bit longwords per slot)
-    
-    add.w   d0,a0
-    add.w   d0,a0
-    
-    move.l  (a0)+,D4    ; retrieve value of first pointer
-    move.l  (a0)+,D5    ; retrieve value of second pointer
-    move.l  (a0),D6    ; retrieve value of third pointer
-    move.l  (a7)+,a0
-    
-    rts
-.out_of_bounds
-    moveq.l   #0,d0
-    moveq.l   #0,d1
-    moveq.l   #0,d2
-    rts
-    
 ; what: checks if x,y collides with maze
 ; returns valid location out of the maze
 ; (allows to handle edges, with a limit given by
@@ -3639,7 +3251,7 @@ get_tile_type:
     lea     mul26_table(pc),a0
     add.w   d1,d1
     move.w  (a0,d1.w),d1    ; times 26
-    move.l maze_wall_table(pc),a0
+    ;;move.l maze_wall_table(pc),a0
     
     
     add.w   d1,a0
@@ -4097,7 +3709,7 @@ convert_number
 ; trashes: none
 
 write_blanked_color_string:
-    movem.l D1-D6/A1,-(a7)
+    movem.l D1-D7/A1,-(a7)
     ; compute string length first in D6
     clr.w   d6
 .strlen
@@ -4107,8 +3719,9 @@ write_blanked_color_string:
     bra.b   .strlen
 .outstrlen
     ; D6 has string length
-    lea game_palette(pc),a1
-    moveq   #15,d3
+    move.l current_palette(pc),a1
+    move.w  current_nb_colors(pc),d3
+	subq.w	#1,d3
     moveq   #0,d5
 .search
     move.w  (a1)+,d4
@@ -4121,7 +3734,14 @@ write_blanked_color_string:
 .color_found
     ; d5: color index
     lea screen_data,a1
+	move.w	#SCREEN_PLANE_SIZE,d7
     moveq   #3,d3
+	move.w  current_nb_colors(pc),d4
+	cmp.w	#16,d4
+	beq.b	.16_cols
+	add.w	d7,d7
+	moveq   #2,d3		; 8 colors (DPF)
+.16_cols
     move.w  d0,d4
 .plane_loop
 ; < A0: c string
@@ -4145,10 +3765,10 @@ write_blanked_color_string:
     movem.l (a7)+,d0-d6/a1/a5
 .next_plane
     lsr.w   #1,d5
-    add.l   #SCREEN_PLANE_SIZE,a1
+    add.w   D7,a1
     dbf d3,.plane_loop
 .out
-    movem.l (a7)+,D1-D6/A1
+    movem.l (a7)+,D1-D7/A1
     rts
     
 ; what: writes a text in a given color
@@ -4162,8 +3782,9 @@ write_blanked_color_string:
 
 write_color_string:
     movem.l D1-D5/A1,-(a7)
-    lea game_palette(pc),a1
-    moveq   #15,d3
+    move.l	current_palette(pc),a1
+    move.w  current_nb_colors(pc),d3
+	subq.w	#1,d3
     moveq   #0,d5
 .search
     move.w  (a1)+,d4
@@ -4176,7 +3797,14 @@ write_color_string:
 .color_found
     ; d5: color index
     lea screen_data,a1
+	move.w	#SCREEN_PLANE_SIZE,d7
     moveq   #3,d3
+	move.w  current_nb_colors(pc),d4
+	cmp.w	#16,d4
+	beq.b	.16_cols
+	moveq   #2,d3		; 8 colors (DPF)
+	add.w	d7,d7
+.16_cols
     move.w  d0,d4
 .plane_loop
 ; < A0: c string
@@ -4190,7 +3818,7 @@ write_color_string:
     bsr write_string
 .skip_plane
     lsr.w   #1,d5
-    add.l   #SCREEN_PLANE_SIZE,a1
+    add.w	d7,a1
     dbf d3,.plane_loop
 .out
     movem.l (a7)+,D1-D5/A1
@@ -4380,7 +4008,7 @@ _resload
 _keyexit
     dc.b    $59
 scores_name
-    dc.b    "amidar.high",0
+    dc.b    "scramble.high",0
 highscore_needs_saving
     dc.b    0
 graphicsname:   dc.b "graphics.library",0
@@ -4431,28 +4059,10 @@ state_timer:
     dc.l    0
 intro_text_message:
     dc.w    0
-last_ghost_eaten_state_timer
-    dc.w    0
-fruit_score_index:
-    dc.w    0
-next_enemy_iteration_score
-    dc.w    0
 previous_player_address
     dc.l    0
-previous_valid_direction
-    dc.l    0
 
-global_speed_table
-    dc.l    0
-dot_table:
-    dc.l    0
-maze_wall_table:
-    dc.l    0
 
-maze_bitmap_plane_1
-    dc.l    0
-maze_bitmap_plane_2
-    dc.l    0
 extra_life_sound_counter
     dc.w    0
 extra_life_sound_timer
@@ -4466,8 +4076,6 @@ player_killed_timer:
     dc.w    -1
 bonus_score_timer:
     dc.w    0
-fright_timer:
-    dc.w    0
 cheat_sequence_pointer
     dc.l    cheat_sequence
 
@@ -4476,115 +4084,33 @@ cheat_keys
 death_frame_offset
     dc.w    0
 
-power_state_counter
-    dc.w    0
-; move every 10 ticks
-bonus_level_lane_select_subcounter:
-    dc.w    0
-bonus_text_screen_countdown
-    dc.w    0
-bonus_music_replay_timer
-    dc.w    0
-player_move_index
-    dc.w    0
-thief_move_index
-    dc.w    0
-
-compatible_rectangles
-    dc.l    0,0,0,0
-bonus_vertical_table
-    dc.l    0
-bottom_reached
-    dc.w    0
-last_bonus_timeout
-    dc.w    0
-banana_x
-    dc.w    0
-nb_enemies_but_thief
-    dc.w    0
-nb_enemies_to_eat
-    dc.w    0
-jump_index
-    dc.w   0
-jump_frame
-    dc.w    0
 enemy_kill_frame
     dc.w    0
-completed_music_timer:
-    dc.w    0
-maze_outline_color
-    dc.w    0
-can_eat_enemies_mode_pending
-    dc.w    0
-maze_fill_color
-    dc.w    0
-previous_temp_paint_direction:
-    dc.w    0
-attack_timeout:
-    dc.w    0
-nb_compatible_rectangles
-	dc.w	0
 
-thief_target_tile_x
-    dc.w    0
-thief_target_tile_y
-    dc.w    0
-thief_standby_timer:
-    dc.w    0
-; initial time for standby
-thief_standby_time:
-    dc.w    0
-thief_attack_sound_count_timer:
-    dc.w    0
-thief_attacks:
-    dc.b    0
-thief_up_move_lock:
-    dc.b    0
-thief_attack_sound_count:
-    dc.b    0
-total_number_of_dots:
-    dc.b    0
-bonus_cattle_moving:
-    dc.b    0
-player_move_record
-    dc.b    0
-first_recorded_move
-    dc.b    0
-first_thief_objective
-    dc.b    0
-next_level_is_bonus_level
-    dc.b    0
+
+current_nb_colors:
+	dc.w	0
+current_palette
+	dc.l	0
+
+map_pointer
+	dc.l	0
+
 nb_lives:
     dc.b    0
 level_completed_flag
 	dc.b	0
-rustler_level:
-    dc.b    0
-corner_sideeffect_paint
-	dc.b	0
-previous_tile_type:
-    dc.b    0
 
-was_playing_paint_sound:
-    dc.b    0
 new_life_restart:
     dc.b    0
-bonus_sprites:
-    dc.b    0
-nb_stars:
-    dc.b    0
-nb_special_rectangles:
-    dc.b    0
-nb_rectangles:
-    dc.b    0
+
 music_playing:    
     dc.b    0
 pause_flag
     dc.b    0
 quit_flag
     dc.b    0
-elroy_mode_lock:
-    dc.b    0
+
 
 
 invincible_cheat_flag
@@ -4599,25 +4125,19 @@ extra_life_awarded
     dc.b    0
 music_played
     dc.b    0
-delete_last_star_message
-    dc.b    0
 
+filling_tile_table
+	dc.b	0,0,0,81,82,82
+
+filling_tile:
+	dc.b	0
     even
 
-power_song_countdown
-     dc.w   0
 bonus_score_display_message:
     dc.w    0
 extra_life_message:
     dc.w    0
-score_table
-    dc.w    0,1,5
 
-fruit_score     ; must follow score_table
-    dc.w    10
-loop_array:
-    dc.l    0,0,0,0
-    
     
 player_kill_anim_table:
     REPT    ORIGINAL_TICKS_PER_SEC/2
@@ -4721,30 +4241,9 @@ square_table:
 	rept	256
 	dc.w	REPTN*REPTN
 	endr
-   
-; truth table to avoid testing for several directions where there's only once choice
-; (one bit set)
-no_direction_choice_table:
-    dc.b    $ff   ; 0=not possible
-    dc.b    RIGHT   ; 1
-    dc.b    DOWN   ; 2
-    dc.b    $ff   ; 3=composite
-    dc.b    LEFT   ; 4=UP
-    dc.b    $ff   ; 5=composite
-    dc.b    $ff   ; idem
-    dc.b    $ff   ; idem
-    dc.b    UP   ; 8
-    ; all the rest is composite or invalid
-    REPT    7
-    dc.b    $ff
-    ENDR
-    even
-    
-    
-score_value_table
-    dc.l    20,40,80,160
 
-
+ship_sprite_table
+	dc.l	ship_1,ship_2,ship_3,ship_4
 
 
 	STRUCTURE	Sound,0
@@ -4897,11 +4396,13 @@ enemy_start_position_table
     dc.w    120,176-24
     dc.w    120,176
 
-game_palette
-    include "palette.s"
+menu_palette
+    include "menu_palette.s"
 
-
-
+objects_palette
+	include	"objects_palette.s"
+	
+	include	"tilemap.s"
     
 player:
     ds.b    Player_SIZEOF
@@ -4968,39 +4469,27 @@ coplist
    dc.l  $01080000
    dc.l  $010a0000
 bitplanes:
-   dc.l  $00e00000
-   dc.l  $00e20000
-   dc.l  $00e40000
-   dc.l  $00e60000
-   dc.l  $00e80000
-   dc.l  $00ea0000
-   dc.l  $00ec0000
-   dc.l  $00ee0000
-;   dc.l  $00f00000
-;   dc.l  $00f20000
+	REPT	12
+	dc.w	bplpt+REPTN*2,0
+	ENDR
 
-tunnel_color_reg = color+38
 
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
 sprites:
 enemy_sprites:
-intro_green_police:
-bonus_banana:
     ; #0
     dc.w    sprpt+0,0
     dc.w    sprpt+2,0
     ; #1
     dc.w    sprpt+4,0
     dc.w    sprpt+6,0
-intro_cattle_pink:
     ; #2
     dc.w    sprpt+8,0
     dc.w    sprpt+10,0
     ; #3
     dc.w    sprpt+12,0
-    dc.w    sprpt+14,0
-intro_cyan_cattle:    
+    dc.w    sprpt+14,0   
     ; #4
     dc.w    sprpt+16,0
     dc.w    sprpt+18,0
@@ -5008,7 +4497,6 @@ intro_cyan_cattle:
     dc.w    sprpt+20,0
     dc.w    sprpt+22,0
     ; #6
-thief_sprite:
     dc.w    sprpt+24,0
     dc.w    sprpt+26,0
     ; #7
@@ -5032,9 +4520,21 @@ end_color_copper:
 empty_16x16_bob
     ds.b    64*4,0
 
+tiles:
+	include	"blocks.s"
+	
 lives
     incbin  "life.bin"
 
+ship_1:
+	incbin	"ship_1.bin"
+ship_2:
+	incbin	"ship_2.bin"
+ship_3:
+	incbin	"ship_3.bin"
+ship_4:
+	incbin	"ship_4.bin"
+	
 
 extra_life_raw
     incbin  "extra_life.raw"

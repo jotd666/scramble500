@@ -1,7 +1,7 @@
 import os,bitplanelib,json
 from PIL import Image
 
-
+import collections
 tile_width = 16
 tile_height = 8
 sprites_dir = "../sprites"
@@ -11,9 +11,15 @@ dump_tiles = False
 
 outdir = "tiles"
 
+filling_tiles = {81:82}
+
+has_ceiling = [False,True,False,False,True,False]
+
 def extract_block(img,x,y):
     return tuple(img.getpixel((x+i,y+j)) for j in range(tile_height) for i in range(tile_width))
 
+
+# the menu palette
 
 main_palette = [(0,0,0),
                 (240,64,0),     # dark orange
@@ -37,59 +43,101 @@ BOSS = 86
 MYSTERY = 17
 FUEL = 29
 
-bitplanelib.palette_dump(main_palette,os.path.join(source_dir,"palette.s"),as_copperlist=False)
+bitplanelib.palette_dump(main_palette,os.path.join(source_dir,"menu_palette.s"),as_copperlist=False)
 
 
 
 def process_maps():
     tile_dict = {}
     tile_id = 1
-
+    dumped_set = set()
     max_level = 6
-    for level_index in range(1,max_level+1):
+    with open(os.path.join(source_dir,"tilemap.s"),"w") as f:
+        f.write("level_tiles:\n")
+        for level_index in range(1,max_level+1):
+            f.write("\tdc.l\tlevel{}map\n".format(level_index))
+        f.write("\n")
+        for level_index in range(1,max_level+1):
+            f.write("level{}map:\n".format(level_index))
+            with_ceiling = has_ceiling[level_index-1]
 
-        img = Image.open("scramble_gamemap_l{}.png".format(level_index))
+            img = Image.open("scramble_gamemap_l{}.png".format(level_index))
 
-        nb_h_tiles = img.size[0]//tile_width
-        nb_v_tiles = img.size[1]//tile_height
-        tile_id_to_xy = {}
-
-
-        matrix = []
-        for xtile in range(0,nb_h_tiles):
-            x = xtile * tile_width
-            column = []
-            for ytile in range(0,nb_v_tiles):
-                y = ytile * tile_height
-                # extract 16x16 block
-                blk = extract_block(img,x,y)
-                s = set(blk)
-                if len(s)!=1:
-                    tinfo = tile_dict.get(blk)
-                    if not tinfo:
-                        # tile not already found: create
-                        tinfo = tile_id
-                        tile_id += 1
-                        tile_dict[blk] = tinfo
-                        tile_id_to_xy[tinfo] = (x,y)
-
-                    column.append({"tile_id":tinfo,"x":x,"y":y})
-            matrix.append(column)
-
-        print(matrix)
-        for k,(x,y) in tile_id_to_xy.items():
-            outname = "tiles/tile_{:02}.png".format(k)
-            ti = Image.new("RGB",(tile_width,tile_height))
-            ti.paste(img,(-x,-y))
-            if dump_tiles:
-                print("dumping {}".format(outname))
-                ti.save(outname)
-
-            outname = "{}/tile_{:02}.bin".format(sprites_dir,k)
-            bitplanelib.palette_image2raw(ti,outname,tiles_palette_level_5 if level_index == 5 else tiles_palette,
-            palette_precision_mask=0xF0)
+            nb_h_tiles = img.size[0]//tile_width
+            nb_v_tiles = img.size[1]//tile_height
+            tile_id_to_xy = {}
 
 
+            matrix = []
+            for xtile in range(0,nb_h_tiles):
+                x = xtile * tile_width
+                column = [[],[]]
+                cidx = int(not(with_ceiling))
+                for ytile in range(0,nb_v_tiles):
+                    y = ytile * tile_height
+                    # extract 16x16 block
+                    blk = extract_block(img,x,y)
+                    s = set(blk)
+                    is_filler = False
+                    if len(s)==1:
+                        sole_element = next(iter(s))
+                        # test paletized or not paletized black
+                        if sole_element == 0 or sole_element == (0,0,0):
+                            # background: change category
+                            cidx = 1
+                        else:
+                            is_filler = True
+                    else:
+                        tinfo = tile_dict.get(blk)
+                        if not tinfo:
+                            # tile not already found: create
+                            tinfo = tile_id
+                            tile_id += 1
+                            tile_dict[blk] = tinfo
+                            tile_id_to_xy[tinfo] = (x,y)
+                        if tinfo in filling_tiles:
+                            is_filler = True
+                        else:
+                            column[cidx].append({"tile_id":tinfo,"y":y,"x":x})
+
+                matrix.append(column)
+
+
+            for k,(x,y) in tile_id_to_xy.items():
+                outname = "tiles/tile_{:02}.png".format(k)
+                if not outname in dumped_set:
+                    dumped_set.add(outname)
+                    ti = Image.new("RGB",(tile_width,tile_height))
+                    ti.paste(img,(-x,-y))
+                    if dump_tiles:
+                        print("dumping {}".format(outname))
+                        ti.save(outname)
+
+                    outname = "{}/tile_{:02}.bin".format(sprites_dir,k)
+                    img_x = ti.size[0]+16
+                    ti_pad = Image.new("RGB",(img_x,ti.size[1]))
+                    ti_pad.paste(ti)
+
+                    bitplanelib.palette_image2raw(ti_pad,outname,tiles_palette_level_5 if level_index == 5 else tiles_palette,
+                    palette_precision_mask=0xF0)
+
+            # number of ground tiles
+            for c in matrix:
+                # for each x, number of ceiling tiles, y start, tile ids
+                for sc in c:
+                    f.write("\tdc.w\t{}".format(len(sc)))
+                    if sc:
+                        f.write(",{}".format(sc[0]["y"]))
+                        for c in sc:
+                            f.write(",{}".format(c["tile_id"]))
+                    f.write("\n")
+
+            f.write("\tdc.w\t-1\n") # end of level
+        f.write("\tdc.w\t-2\n") # end of levels
+        with open(os.path.join(source_dir,"blocks.s"),"w") as f:
+            f.write("; each block is 32+32 bytes (because blitter shifting adds 16 bits/plane)\n")
+            for i in range(1,tile_id):
+                f.write("\tincbin\ttile_{:02d}.bin\n".format(i))
 
 def process_tiles(json_file):
     with open(json_file) as f:
@@ -100,6 +148,7 @@ def process_tiles(json_file):
     default_horizontal = tiles["horizontal"]
 
     game_palette_16 = [tuple(x) for x in tiles["palette"]]
+
 
     x_offset = tiles["x_offset"]
     y_offset = tiles["y_offset"]
@@ -172,15 +221,16 @@ def process_tiles(json_file):
                 img_x = x_size+16 if blit_pad else x_size
                 img = Image.new("RGB",(img_x,cropped_img.size[1]))
                 img.paste(cropped_img)
-                # if 1 plane, pacman frames, save only 1 plane, else save all 4 planes
-                one_plane = False  #len(p)==2
+
                 used_palette = game_palette_16
 
                 namei = "{}_{}".format(name,i) if nb_frames!=1 else name
 
-                print("processing bob {}...".format(name))
+                print("processing bob {}, mask {}...".format(name,generate_mask))
                 bitplanelib.palette_image2raw(img,"{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,
-                palette_precision_mask=0xF0,generate_mask=generate_mask)
+                forced_nb_planes=3,palette_precision_mask=0xF0,generate_mask=generate_mask)
+
+    return game_palette_16
 
 def process_fonts(dump=False):
     json_file = "fonts.json"
@@ -257,10 +307,13 @@ def process_fonts(dump=False):
             namei = "{}_{}".format(name,i) if nb_frames != 1 else name
             bitplanelib.palette_image2raw(img,"{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,palette_precision_mask=0xF0)
 
-#process_maps()
+process_maps()
 
 
-process_tiles("tiles_gray.json")
-process_tiles("tiles_color.json")
+#process_tiles("tiles_gray.json")
+# 8 colors of ship & objects playfield
+#game_palette = process_tiles("tiles_color.json")
+#bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
+
 
 #process_fonts()
