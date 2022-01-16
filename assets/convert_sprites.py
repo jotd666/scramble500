@@ -2,9 +2,13 @@ import os,bitplanelib,json
 from PIL import Image
 
 
-tile_width = 8
+tile_width = 16
 tile_height = 8
 sprites_dir = "../sprites"
+source_dir = "../src"
+
+dump_tiles = False
+
 outdir = "tiles"
 
 def extract_block(img,x,y):
@@ -25,8 +29,15 @@ main_palette = [(0,0,0),
 main_palette += [(0,0,0)] * (16-len(main_palette))
 
 tiles_palette = [(0,0,0),(240,0,0),(0,0,240),(240,240,0)]
+tiles_palette_level_5 = [(0,0,0),(32,208,0),(240,0,240),(240,240,0)]
 
-bitplanelib.palette_dump(main_palette,r"../src/palette.s",as_copperlist=False)
+# special tiles
+ROCKET = 12
+BOSS = 86
+MYSTERY = 17
+FUEL = 29
+
+bitplanelib.palette_dump(main_palette,os.path.join(source_dir,"palette.s"),as_copperlist=False)
 
 
 
@@ -35,16 +46,9 @@ def process_maps():
     tile_id = 1
 
     max_level = 6
-    dump_tiles = False
     for level_index in range(1,max_level+1):
+
         img = Image.open("scramble_gamemap_l{}.png".format(level_index))
-
-
-    ##            p = img.getpixel((x+4,y+3))  # this image may be palletized: contains black (0) and green (1)
-    ##            if p and p!=(0,0,0):
-    ##                dot_matrix[j][ii:ii+6] = [1]*6
-    ##                row.append(j)
-    ##        rows.append(row)
 
         nb_h_tiles = img.size[0]//tile_width
         nb_v_tiles = img.size[1]//tile_height
@@ -72,25 +76,30 @@ def process_maps():
                     column.append({"tile_id":tinfo,"x":x,"y":y})
             matrix.append(column)
 
-            for k,(x,y) in tile_id_to_xy.items():
-                outname = "tiles/tile_{:02}.png".format(k)
-                ti = Image.new("RGB",(tile_width,tile_height))
-                ti.paste(img,(-x,-y))
-                if dump_tiles:
-                    ti.save(outname)
+        print(matrix)
+        for k,(x,y) in tile_id_to_xy.items():
+            outname = "tiles/tile_{:02}.png".format(k)
+            ti = Image.new("RGB",(tile_width,tile_height))
+            ti.paste(img,(-x,-y))
+            if dump_tiles:
+                print("dumping {}".format(outname))
+                ti.save(outname)
 
-                outname = "{}/tile_{:02}.bin".format(sprites_dir,k)
-                bitplanelib.palette_image2raw(ti,outname,tiles_palette,palette_precision_mask=0xF0)
+            outname = "{}/tile_{:02}.bin".format(sprites_dir,k)
+            bitplanelib.palette_image2raw(ti,outname,tiles_palette_level_5 if level_index == 5 else tiles_palette,
+            palette_precision_mask=0xF0)
 
 
 
-def process_tiles(json_file,game_palette_16):
+def process_tiles(json_file):
     with open(json_file) as f:
         tiles = json.load(f)
 
     default_width = tiles["width"]
     default_height = tiles["height"]
     default_horizontal = tiles["horizontal"]
+
+    game_palette_16 = [tuple(x) for x in tiles["palette"]]
 
     x_offset = tiles["x_offset"]
     y_offset = tiles["y_offset"]
@@ -99,7 +108,7 @@ def process_tiles(json_file,game_palette_16):
 
     sprites = Image.open(sprite_page)
 
-    name_dict = {"scores_{}".format(i):"scores_"+n for i,n in enumerate(["200","400","800","1600","3200"])}
+    name_dict = {"scores_{}".format(i):"scores_"+n for i,n in enumerate(["100","200","300"])}
     # we first did that to get the palette but we need to control
     # the order of the palette
 
@@ -157,7 +166,7 @@ def process_tiles(json_file,game_palette_16):
                 # blitter object
 ##                if x_size % 16:
 ##                    raise Exception("{} (frame #{}) with should be a multiple of 16, found {}".format(name,i,x_size))
-                # pacman is special: 1 plane
+
                 p = bitplanelib.palette_extract(cropped_img,palette_precision_mask=0xF0)
                 # add 16 pixelsblit_pad
                 img_x = x_size+16 if blit_pad else x_size
@@ -250,7 +259,8 @@ def process_fonts(dump=False):
 
 #process_maps()
 
-gray_palette = [(x,)*3 for x in [0,128,64,128+64]]  # following order of the sprite sheet
-process_tiles("tiles_gray.json",gray_palette)
 
-process_fonts()
+process_tiles("tiles_gray.json")
+process_tiles("tiles_color.json")
+
+#process_fonts()

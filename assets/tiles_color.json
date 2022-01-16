@@ -1,0 +1,162 @@
+{
+"source":"sprites.png",
+"palette":[[0, 0, 0],
+ [224, 0, 0],
+ [224, 0, 208],
+ [224, 48, 0],
+ [16, 192, 0],
+ [0, 192, 208],
+ [192, 192, 208],
+ [224, 224, 0]],
+"x_offset":0,
+"y_offset":0,
+ "width" : 16,
+ "height" : 16,
+ "horizontal" : true,
+ "objects":[
+ {"name":"ship_1",
+     "generate_mask":true,
+ "start_x":1,
+ "start_y":7,
+ "width":32
+ },
+{"name":"ship_2",
+     "generate_mask":true,
+ "start_x":1,
+ "start_y":25,
+ "width":32
+ },
+{"name":"ship_3",
+     "generate_mask":true,
+ "start_x":1,
+ "start_y":43,
+ "width":32
+ },
+{"name":"ship_4",
+     "generate_mask":true,
+ "start_x":1,
+ "start_y":61,
+  "width":32
+},
+{"name":"ship_explosion_1",
+     "generate_mask":true,
+
+ "start_x":69,
+ "start_y":7,
+ "width":32
+ },
+{"name":"ship_explosion_2",
+     "generate_mask":true,
+
+"start_x":69,
+ "start_y":25,
+ "width":32
+ },
+{"name":"ship_explosion_3",
+     "generate_mask":true,
+
+"start_x":69,
+ "start_y":43,
+ "width":32
+ },
+{"name":"ship_explosion_4",
+     "generate_mask":true,
+
+"start_x":69,
+ "start_y":61,
+ "width":32
+},
+{"name":"explosion_1",
+     "generate_mask":true,
+ "start_x":121,
+ "start_y":7
+ },
+{"name":"explosion_2",
+     "generate_mask":true,
+ "start_x":121,
+ "start_y":25
+ },
+{"name":"explosion_3",
+     "generate_mask":true,
+ "start_x":121,
+ "start_y":43
+ },
+{"name":"explosion_4",
+     "generate_mask":true,
+ "start_x":121,
+ "start_y":61
+},
+{"name":"explosion_5",
+     "generate_mask":true,
+ "start_x":139,
+ "start_y":7
+ },
+{"name":"explosion_6",
+     "generate_mask":true,
+ "start_x":139,
+ "start_y":25
+ },
+{"name":"explosion_7",
+     "generate_mask":true,
+ "start_x":139,
+ "start_y":43
+ },
+{"name":"explosion_8",
+     "generate_mask":true,
+ "start_x":139,
+ "start_y":61
+},
+{"name":"fireball_1",
+     "generate_mask":true,
+ "start_x":157,
+ "start_y":7
+ },
+{"name":"fireball_2",
+     "generate_mask":true,
+ "start_x":157,
+ "start_y":25
+ },
+{"name":"fireball_3",
+     "generate_mask":true,
+ "start_x":157,
+ "start_y":43
+ },
+{"name":"fireball_4",
+     "generate_mask":true,
+ "start_x":157,
+ "start_y":61
+},
+{"name":"bomb_1",
+     "generate_mask":true,
+ "start_x":103,
+ "start_y":7
+ },
+{"name":"bomb_2",
+     "generate_mask":true,
+ "start_x":103,
+ "start_y":25
+ },
+{"name":"bomb_3",
+     "generate_mask":true,
+ "start_x":103,
+ "start_y":43
+ },
+{"name":"bomb_4",
+     "generate_mask":true,
+ "start_x":103,
+ "start_y":61
+},
+{"name":"bomb_5",
+     "generate_mask":true,
+ "start_x":103,
+ "start_y":79
+},
+{"name":"ufo",
+     "generate_mask":true,
+ "start_x":121,
+ "start_y":79
+}
+
+ 
+ ]
+}
