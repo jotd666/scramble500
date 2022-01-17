@@ -34,6 +34,7 @@ HOW TO PLAY:
 CREDITS:
 
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
+- hajodick (EAB): game map rips from the arcade
 - Frank Wille (aka phx): sfx/module player
 - meynaf: random routine
 - eab forum: useful advice & support

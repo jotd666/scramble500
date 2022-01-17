@@ -150,23 +150,15 @@ NB_BYTES_PER_MAZE_LINE = 26
 BOB_16X16_PLANE_SIZE = 64
 BOB_32X16_PLANE_SIZE = 96
 BOB_8X8_PLANE_SIZE = 16
-MAZE_PLANE_SIZE = NB_BYTES_PER_LINE*NB_LINES
+
 NB_LINES = 31*8
 SCREEN_PLANE_SIZE = 40*NB_LINES
 NB_PLANES   = 6
 
-NB_TILES_PER_LINE = NB_BYTES_PER_MAZE_LINE
-NB_TILE_LINES = 27
-MAZE_HEIGHT = NB_TILES_PER_LINE*8
-MAZE_ADDRESS_OFFSET = 6*NB_BYTES_PER_LINE+1
-INTRO_MAZE_HEIGHT = 14*8-2
-INTRO_MAZE_ADDRESS_OFFSET = 72*NB_BYTES_PER_LINE+1
-BONUS_MAZE_ADDRESS_OFFSET = 14*NB_BYTES_PER_LINE+1
 
-Y_MAX = MAZE_HEIGHT
-X_MAX = (NB_BYTES_PER_MAZE_LINE-1)*8
+X_MAX=240
+Y_MAX=220
 
-STARS_OFFSET = NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+18)
 
 ; maybe too many slots...
 NB_ROLLBACK_SLOTS = 80
@@ -709,32 +701,6 @@ clear_playfield_plane
     movem.l (a7)+,d0-d1/a0-a1
     rts
 
-clear_maze
-    lea screen_data,a1
-    bsr clear_maze_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_maze_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_maze_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bra clear_maze_plane
-    
-; < A1: plane start
-clear_maze_plane
-    movem.l d0-d1/a0-a1,-(a7)
-    add.w   #NB_BYTES_PER_LINE*4,a1
-    move.w #MAZE_HEIGHT+7+6,d0
-.cp
-    move.w  #NB_BYTES_PER_MAZE_LINE/4,d1
-    move.l  a1,a0
-.cl
-    clr.l   (a0)+
-    dbf d1,.cl
-    add.w   #NB_BYTES_PER_LINE,a1
-    dbf d0,.cp
-    movem.l (a7)+,d0-d1/a0-a1
-    rts
-
     
 init_new_play:
     lea objects_palette,a0
@@ -891,19 +857,21 @@ init_player:
     bne.b   .no_clear
     clr.l   previous_player_address   ; no previous position
 .no_clear
+    move.w	level_number(pc),d0
+	add.w	d0,d0
+	lea		filling_tile_table(pc),a0
+	move.w	(a0,d0.w),filling_tile
+	add.w	d0,d0
+	lea		level_tiles(pc),a0
+	move.l	(a0,d0.w),map_pointer
+
+
     lea player(pc),a0
 
     
     move.w  #0,xpos(a0)
 	move.w	#0,ypos(a0)
     
-    move.w	level_number(pc),d0
-	lea		filling_tile_table(pc),a0
-	move.b	(a0,d0.w),filling_tile
-	add.w	d0,d0
-	add.w	d0,d0
-	lea		level_tiles(pc),a0
-	move.l	(a0,d0.w),map_pointer
 	
 
     clr.w  speed_table_index(a0)
@@ -1139,7 +1107,7 @@ PLAYER_ONE_Y = 102-14
     cmp.l   #GAME_OVER_TIMER,state_timer
     bne.b   .draw_complete
     bsr hide_sprites
-    bsr clear_maze
+    bsr clear_playfield_planes
 
     move.w  #72,d0
     move.w  #136,d1
@@ -1156,7 +1124,15 @@ PLAYER_ONE_Y = 102-14
     bsr draw_player
 
 	; TEMP TEMP
+	
+	move.w	#0,d0
+	move.w	#29,d7
+	move.l	map_pointer(pc),a6
+.tileloop
 	bsr	draw_tiles
+	addq.w	#1,D0
+	dbf	d7,.tileloop
+
    
     
 .after_draw
@@ -1201,54 +1177,66 @@ stop_sounds
     bra _mt_end
 
 
+; < A6: map pointer
+; < D0: x offset in bytes
+; > A6: new map pointer
 draw_tiles:
-	move.l	map_pointer(pc),a6
+	movem.l	d0-d2/A0-a3,-(a7)
 	; upper part
-	move.w	(a6)+,d7
+	move.w	(a6)+,d2
 	beq.b	.lower
 	bmi.b	.end
 	nop
 	blitz ; TODO LEVEL 2
 .lower
-	move.w	(a6)+,d7
+	move.w	(a6)+,d2		; number of vertical tiles to draw
 	beq.b	.out	; not really possible, though
-	subq.w	#1,d7
-	lea		screen_data+SCREEN_PLANE_SIZE,a3	; 2nd playfield
+	subq.w	#1,d2
+	lea		screen_data+SCREEN_PLANE_SIZE,a1	; 2nd playfield
 	lea		tiles,a4
-	move.w	(a6)+,d0	; y start
+	move.w	(a6)+,d1	; y start
+	move.w	d1,d3	; save Y
 	lea		mul40_table(pc),a2
-	add.w	d0,d0
-	add.w	(a2,d0.w),a3	; offset
-	move.l	a3,a1
-	add.w	#20,a1	; TEMP
+	add.w	d1,d1
+	add.w	(a2,d1.w),a1	; offset
+	add.w	d0,a1		; add x offset
+
 .lowerloop:
 	move.w	(a6)+,d0	; tile id
-	lsl.w	#6,d0		; times 64
 	lea		(a4,d0.w),a0	; graphics
-	clr.w	d0
-	clr.w	d1
-	moveq.l #-1,d3
-    move.w  #4,d2       ; 16 pixels + 2 shift bytes
-    move.w  #8,d4      ; 8 pixels height
-	; 2 planes
-    lea $DFF000,A5
-    movem.l d0-d6/a0-a4/a6,-(a7)
-    bsr blit_plane_any_internal	
-    movem.l (a7),d0-d6/a0-a4/a6
-	add.w	#SCREEN_PLANE_SIZE*2,a1	; other plane
-	add.w	#32,a0	; next plane
-    bsr blit_plane_any_internal	
-    movem.l (a7)+,d0-d6/a0-a4/a6
-	
+	; cpu copy
+	move.l	a1,a2
+	lea		(SCREEN_PLANE_SIZE*2,a1),a3
+	moveq.w	#7,d0
+.copy
+	; copy both planes
+	move.b	(8,a0),(a3)
+	move.b	(a0)+,(a2)
+	add.w	#NB_BYTES_PER_LINE,a2
+	add.w	#NB_BYTES_PER_LINE,a3
+	dbf		d0,.copy
 	add.w	#NB_BYTES_PER_LINE*8,a1
-	dbf		d7,.lowerloop
+	addQ.w	#8,d3
+	dbf		d2,.lowerloop
+	; now fill the rest with filler tile or nothing
+	move.w	filling_tile(pc),d0
+	bne.b	.ft
+	; empty
+	neg.w	d3
+	add.w	#Y_MAX-1,d3
+.fill
+	st.b	(a3)
+	add.w	#NB_BYTES_PER_LINE,a3
+	dbf	d3,.fill
+.ft
 	
 .out
+	movem.l	(a7)+,d0-d2/A0-a3
 	rts
 	
 .end
 	blitz
-	rts
+	bra	.out
 	
 blit_tile
     rts
@@ -1935,12 +1923,13 @@ clear_plane_any_blitter_internal:
 
     
 draw_fuel:
+	rts
     ;;move.b  nb_stars(pc),d7
     subq.b  #1,d7
     ext     d7    
 .lloop
     ;;lea star,a0
-    lea	screen_data+STARS_OFFSET,a1
+    lea	screen_data+0,a1
     add.l   d7,a1
     moveq   #3,d2
 .ploop
@@ -1955,7 +1944,7 @@ draw_fuel:
 .out
 	rts
         
-LIVES_OFFSET = (MAZE_HEIGHT+18)*NB_BYTES_PER_LINE+1
+LIVES_OFFSET = 220*NB_BYTES_PER_LINE+1
 
 draw_last_life
     move.w   #1,d0      ; draw only last life
@@ -4127,10 +4116,10 @@ music_played
     dc.b    0
 
 filling_tile_table
-	dc.b	0,0,0,81,82,82
+	dc.w	0,0,0,33*16,33*16,34*16
 
 filling_tile:
-	dc.b	0
+	dc.w	0
     even
 
 bonus_score_display_message:
@@ -4290,112 +4279,9 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY player_killed,2,SOUNDFREQ,40
 
 
-
-; enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
-;  level 8: 20/16 level 9-13: 20/15, at level 15 reaches 20/13 speed (max)
-
- ; speed table at 60 Hz
-speed_table:
-    dc.l    speed_level_12,speed_level_34,speed_level_56,speed_level_78
-    dc.l    speed_level_913,speed_level_913,speed_level_15
-    
-speed_level_12:
-    REPT    20
-    dc.b   1
-    ENDR
-    
-speed_level_34:
-    REPT    10
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    9
-    dc.b   1
-    ENDR
-    
-speed_level_56:
-    REPT    6
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    6
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    6
-    dc.b   1
-    ENDR
-    
-speed_level_78:
-    REPT    4
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    4
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    4
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    4
-    dc.b   1
-    ENDR
-    
-speed_level_913:
-    REPT    3
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    4
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    3
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    4
-    dc.b   1
-    ENDR
-    dc.b    2
-    REPT    3
-    dc.b   1
-    ENDR
-
-speed_level_15:     ; x1.5 speed!!!
-    REPT    10
-    dc.b    1
-    dc.b    2
-    ENDR
-
-    
-enemy_start_position_table
-    dc.l    .level1
-    dc.l    .level2
-    dc.l    .level3
-    dc.l    .level1
-
-.level1:
-    REPT    6
-    dc.w    REPTN*40,0
-    ENDR
-.level2
-    dc.w    0,0
-    dc.w    40,36
-    dc.w    80,36+24
-    dc.w    120,36+48
-    dc.w    160,36+24*3
-    dc.w    200,36+24*4
-.level3
-    dc.w    120,0
-    dc.w    120,36
-    dc.w    120,36+24
-    dc.w    120,106
-    dc.w    120,176-24
-    dc.w    120,176
-
+tiles:
+	include	"blocks.s"
+	
 menu_palette
     include "menu_palette.s"
 
@@ -4412,27 +4298,14 @@ enemies:
     ds.b    Enemy_SIZEOF*7
     even
 
-leaving_paint_tile_x
-	dc.w	0
-leaving_paint_tile_y
-	dc.w	0
-	
-rollback_paint_zone_pointer:
-    dc.l    0
-rollback_rectangle_pointer:
-    dc.l    0
-rollback_dot_table_pointer:
-    dc.l    0
-pending_paint_rectangle_pointer:
-    dc.l    0
+
     
 keyboard_table:
     ds.b    $100,0
     
 floppy_file
     dc.b    "floppy",0
-maze_dump_file
-    dc.b    "maze.bin",0
+
     even
 
 ; table with 2 bytes: 60hz clock, 1 byte: move mask for the demo
@@ -4520,8 +4393,6 @@ end_color_copper:
 empty_16x16_bob
     ds.b    64*4,0
 
-tiles:
-	include	"blocks.s"
 	
 lives
     incbin  "life.bin"

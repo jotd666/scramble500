@@ -2,7 +2,7 @@ import os,bitplanelib,json
 from PIL import Image
 
 import collections
-tile_width = 16
+tile_width = 8
 tile_height = 8
 sprites_dir = "../sprites"
 source_dir = "../src"
@@ -11,7 +11,7 @@ dump_tiles = False
 
 outdir = "tiles"
 
-filling_tiles = {81:82}
+filling_tiles = {33*16,34*16}
 
 has_ceiling = [False,True,False,False,True,False]
 
@@ -49,7 +49,7 @@ bitplanelib.palette_dump(main_palette,os.path.join(source_dir,"menu_palette.s"),
 
 def process_maps():
     tile_dict = {}
-    tile_id = 1
+    tile_id = 0
     dumped_set = set()
     max_level = 6
     with open(os.path.join(source_dir,"tilemap.s"),"w") as f:
@@ -92,7 +92,7 @@ def process_maps():
                         if not tinfo:
                             # tile not already found: create
                             tinfo = tile_id
-                            tile_id += 1
+                            tile_id += 16
                             tile_dict[blk] = tinfo
                             tile_id_to_xy[tinfo] = (x,y)
                         if tinfo in filling_tiles:
@@ -114,11 +114,8 @@ def process_maps():
                         ti.save(outname)
 
                     outname = "{}/tile_{:02}.bin".format(sprites_dir,k)
-                    img_x = ti.size[0]+16
-                    ti_pad = Image.new("RGB",(img_x,ti.size[1]))
-                    ti_pad.paste(ti)
 
-                    bitplanelib.palette_image2raw(ti_pad,outname,tiles_palette_level_5 if level_index == 5 else tiles_palette,
+                    bitplanelib.palette_image2raw(ti,outname,tiles_palette_level_5 if level_index == 5 else tiles_palette,
                     palette_precision_mask=0xF0)
 
             # number of ground tiles
@@ -136,7 +133,7 @@ def process_maps():
         f.write("\tdc.w\t-2\n") # end of levels
         with open(os.path.join(source_dir,"blocks.s"),"w") as f:
             f.write("; each block is 32+32 bytes (because blitter shifting adds 16 bits/plane)\n")
-            for i in range(1,tile_id):
+            for i in range(0,tile_id,16):
                 f.write("\tincbin\ttile_{:02d}.bin\n".format(i))
 
 def process_tiles(json_file):
