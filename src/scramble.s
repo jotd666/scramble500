@@ -158,7 +158,9 @@ NB_PLANES   = 6
 
 X_MAX=240
 Y_MAX=220
-
+X_SHIP_MAX=160  ; probably not that value
+Y_SHIP_MIN=24
+Y_SHIP_MAX=Y_MAX-16
 
 ; maybe too many slots...
 NB_ROLLBACK_SLOTS = 80
@@ -177,8 +179,9 @@ RIGHT = 0
 LEFT = 1<<2
 UP = 2<<2
 DOWN = 3<<2
-; one extra enumerate for fire (demo mode)
+; extra enumerate for fire (demo mode)
 FIRE = 4
+BOMB = 5
 
 ; possible direction bits, clockwise
 DIRB_RIGHT = 0
@@ -869,8 +872,8 @@ init_player:
     lea player(pc),a0
 
     
-    move.w  #0,xpos(a0)
-	move.w	#0,ypos(a0)
+    move.w  #8,xpos(a0)
+	move.w	#60,ypos(a0)
     
 	
 
@@ -2856,6 +2859,8 @@ play_loop_fx
     
 update_player
     lea     player(pc),a4
+    bsr animate_player    
+	
     ; no moves (zeroes horiz & vert)
     clr.l  h_speed(a4)  
 
@@ -2936,15 +2941,23 @@ update_player
     beq.b   .no_auto_fire
     bset    #JPB_BTN_RED,d0
 .no_auto_fire
+    btst    #BOMB,d2
+    beq.b   .no_auto_bomb
+    bset    #JPB_BTN_BLU,d0
+.no_auto_bomb
     
     ; read live or recorded controls
 .no_demo
+    move.w	xpos(a4),d2
+    move.w	ypos(a4),d3
 
     tst.l   d0
-    beq.b   .out        ; nothing is currently pressed: optimize
+    beq.b   .no_move        ; nothing is currently pressed: optimize
+	move.l	previous_joy_input(pc),d1
     btst    #JPB_BTN_RED,d0
     beq.b   .no_fire
-
+	btst	#JPB_BTN_RED,d1
+	bne.b	.no_fire
 ;    lea     jump_sound,a0
 ;    move.l  d0,-(a7)
 ;    bsr     play_fx
@@ -2952,43 +2965,52 @@ update_player
     
 
 .no_fire
+    btst    #JPB_BTN_BLU,d0
+    beq.b   .no_bomb
+    btst    #JPB_BTN_BLU,d1
+    bne.b   .no_bomb
+
+.no_bomb
     btst    #JPB_BTN_RIGHT,d0
     beq.b   .no_right
-    move.w  #1,h_speed(a4)
+    addq.w  #1,d2
     bra.b   .vertical
 .no_right
     btst    #JPB_BTN_LEFT,d0
     beq.b   .vertical
-    move.w  #-1,h_speed(a4)  
+    subq.w  #1,d2 
 .vertical
     btst    #JPB_BTN_UP,d0
     beq.b   .no_up
-    move.w  #-1,v_speed(a4)
+    subq.w  #1,d3
     bra.b   .out
 .no_up
     btst    #JPB_BTN_DOWN,d0
     beq.b   .no_down
-    move.w  #1,v_speed(a4)
+    addq.w  #1,d3
 .no_down    
 .out
-  
-    
-    
-    move.l  d6,h_speed(a4)
+	move.l	d0,previous_joy_input
+.no_move
+	tst.w	d2
+	bmi.b	.x_invalid
+	cmp.w	#X_SHIP_MAX,d2
+	bcc.b	.x_invalid
+    ; TODO: add to x when scrolling
 
-   
-    bsr animate_player    
     move.w  d2,xpos(a4)
-    move.w  d3,ypos(a4)
+.x_invalid
+	tst.w	d3
+	bmi.b	.y_invalid
+	cmp.w	#Y_SHIP_MAX,d3
+	bcc.b	.y_invalid
 
+    move.w  d3,ypos(a4)
+.y_invalid
     rts
     
  
-        
 
-.no_move
-  
-    rts
 
 
 	
@@ -3051,10 +3073,16 @@ record_input:
     rts
     ENDC
     
-; called when pacman moves
-; < A4: pac player
+
+; < A4: player
 animate_player
-    eor.w  #1,frame(a4)
+	move.w	frame(a4),d0
+    addq.w  #4,d0
+	cmp.w	#24*4,d0
+	bne.b	.ok
+	clr.w	d0
+.ok
+	move.w	d0,frame(a4)
     rts
 
 
@@ -3066,14 +3094,15 @@ draw_player:
     move.l  previous_player_address(pc),d5
     bne.b   .not_first_draw
     moveq.l #-1,d5
+	bra.b	.no_erase
 .not_first_draw
     ; first, restore plane 0
-    tst.l   d5    
-    bmi.b   .no_erase
-    ; restore plane 0 using CPU
+    ; erase plane 0
     lea screen_data,a1
     sub.l   a1,d5       ; d5 is now the offset
-
+	bclr	#0,d5
+	add.w	d5,a1
+	bsr		clear_ship_plane
     
 .no_erase
 
@@ -3086,9 +3115,10 @@ draw_player:
     move.l  (a0),a0
     bra.b   .shipblit
 .normal
-	; TODO: get blit data in A0
-	; using frame(a2)
-	lea		ship_1,a0
+
+	lea		ship_sprite_table(pc),a0
+	move.w	frame(a2),d0
+	move.l	(a0,d0.w),a0
 .shipblit
     move.w  xpos(a2),d3    
     move.w  ypos(a2),d4
@@ -3108,15 +3138,15 @@ draw_player:
     
     ; remove previous second plane before blitting the new one
     ; nice as it works in parallel with the first plane blit started above
-    tst.l   d5
-    bmi.b   .no_erase2
-        
-	; clear plane 2
-	nop
-.no_erase2    
-
     lea	screen_data+SCREEN_PLANE_SIZE*2,a1
     move.l  a1,a2   ; just restored background
+    tst.l   d5
+    bmi.b   .no_erase2
+    add.w	d5,a1
+	; clear plane 2
+	bsr	clear_ship_plane
+	move.l	a2,a1
+.no_erase2    
     ; plane 2
     ; a3 is already computed from first cookie cut blit
     lea (BOB_32X16_PLANE_SIZE,a0),a0
@@ -3129,6 +3159,14 @@ draw_player:
  
     lea	screen_data+SCREEN_PLANE_SIZE*4,a1
     move.l  a1,a2   ; just restored background
+    tst.l   d5
+    bmi.b   .no_erase4
+    add.w	d5,a1
+        
+	; clear plane 4
+	bsr	clear_ship_plane
+	move.l	a2,a1
+.no_erase4
     ; plane 2
     ; a3 is already computed from first cookie cut blit
     move.l  a1,a6
@@ -3147,7 +3185,13 @@ blit_ship_cookie_cut
     movem.l (a7)+,d2-d7/a2-a5
 	rts
 	
-
+clear_ship_plane
+	REPT	16
+	clr.l	(NB_BYTES_PER_LINE*REPTN,a1)
+	clr.w	(4+NB_BYTES_PER_LINE*REPTN,a1)
+	ENDR
+	rts
+	
     
 ; < d0.w: x
 ; < d1.w: y
@@ -4030,7 +4074,8 @@ prev_record_joystick_state
 
     ENDC
 
-  
+previous_joy_input
+	dc.l	0
 current_state:
     dc.w    0
 score:
@@ -4231,8 +4276,21 @@ square_table:
 	dc.w	REPTN*REPTN
 	endr
 
+; 6x4 moves
 ship_sprite_table
-	dc.l	ship_1,ship_2,ship_3,ship_4
+	REPT	6
+	dc.l	ship_1
+	ENDR
+	REPT	6
+	dc.l	ship_2
+	ENDR
+	REPT	6
+	dc.l	ship_3
+	ENDR
+	REPT	6
+	dc.l	ship_4
+	ENDR
+
 
 
 	STRUCTURE	Sound,0
