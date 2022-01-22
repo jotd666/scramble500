@@ -7,7 +7,7 @@ tile_height = 8
 sprites_dir = "../sprites"
 source_dir = "../src"
 
-dump_tiles = False
+dump_tiles = True
 
 outdir = "tiles"
 

@@ -90,7 +90,7 @@ MODE_KILL = 1<<2
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -153,7 +153,8 @@ BOB_8X8_PLANE_SIZE = 16
 
 NB_LINES = 31*8
 SCREEN_PLANE_SIZE = 40*NB_LINES
-NB_PLANES   = 6
+SCROLL_PLANE_SIZE = 80*NB_LINES
+NB_PLANES   = 3
 
 
 X_MAX=240
@@ -349,6 +350,7 @@ Start:
     moveq #NB_PLANES-1,d4
     lea	bitplanes,a0              ; copperlist address
     move.l #screen_data,d1
+    move.l #scroll_data,d2
     move.w #bplpt,d3        ; first register in d3
 
 		; 8 bytes per plane:32 + end + bplcontrol
@@ -362,6 +364,16 @@ Start:
     swap d1
     move.w d1,(a0)+           ; 
     add.l #SCREEN_PLANE_SIZE,d1       ; next plane
+
+    move.w d3,(a0)+           ; BPLxPTH
+    addq.w #2,d3              ; next register
+    swap d2
+    move.w d2,(a0)+           ; 
+    move.w d3,(a0)+           ; BPLxPTL
+    addq.w #2,d3              ; next register
+    swap d2
+    move.w d2,(a0)+           ; 
+    add.l #SCROLL_PLANE_SIZE,d2       ; next plane
 
     dbf d4,.mkcl
     
@@ -394,10 +406,10 @@ intro:
 	move.w	#8,d0		; 8 colors
 	bsr		load_palette	
     
-    bsr hide_sprites
-
     bsr clear_screen
     
+	bsr	init_stars
+	
     bsr draw_score
 
     clr.l  state_timer
@@ -405,8 +417,8 @@ intro:
 
    
     bsr wait_bof
-    ; init sprite, bitplane, whatever dma
-    move.w #$83E0,dmacon(a5)
+    ; init sprite, bitplane, whatever dma but not sprites
+    move.w #$83C0,dmacon(a5)
     move.w #INTERRUPTS_ON_MASK,intena(a5)    ; enable level 6!!
     
     IFD DIRECT_GAME_START
@@ -472,7 +484,6 @@ intro:
     ; for debug
     ;;bsr draw_bounds
     
-    bsr hide_sprites
     move.w  level_number(pc),d0
 
 
@@ -667,7 +678,7 @@ clear_debug_screen
     
 clear_screen
     lea screen_data,a1
-    moveq.l #3,d0
+    moveq.l #NB_PLANES-1,d0
 .cp
     move.w  #(NB_BYTES_PER_LINE*NB_LINES)/4-1,d1
     move.l  a1,a2
@@ -680,12 +691,19 @@ clear_screen
 
 
 clear_playfield_planes
-    lea screen_data,a1
-	move.w	#NB_PLANES-2,d0
+    lea scroll_data,a1
+	move.w	#NB_PLANES-1,d0
 .loop
     bsr clear_playfield_plane
+    add.w   #SCROLL_PLANE_SIZE,a1
+	dbf		d0,.loop
+	
+    lea screen_data,a1
+	move.w	#NB_PLANES-2,d0
+.loop2
+    bsr clear_playfield_plane
     add.w   #SCREEN_PLANE_SIZE,a1
-	dbf		d0,.loop	
+	dbf		d0,.loop2
 	; continues to plane clear routine
     
 ; < A1: plane start
@@ -823,20 +841,62 @@ draw_current_score:
     move.w  #$FFF,d4
     bra write_color_decimal_number
     
-    
-hide_sprites:
-    moveq.w  #7,d1
-    lea  sprites,a0
-    lea empty_sprite,a1
-.emptyspr
 
-    move.l  a1,d0
-    bsr store_sprite_copperlist
-    addq.l  #8,a0
-    dbf d1,.emptyspr
-    rts
+stars_palette_size = (end_stars_palette-stars_palette)
+NB_STAR_LINES = 53
 
+init_stars
+	lea	stars_sprites_copperlist,a1
+	lea	stars_palette(pc),a2
+	
+	move.w	#NB_STAR_LINES-1,d7
+	clr.w	d2
+.loop
+	; pick random x
 
+	
+.rx
+	bsr		random
+	btst	#15,d0
+	beq.b	.skip_pos
+	and.w	#$FF,d0
+	cmp.w	#X_MAX,d0
+	bcc.b	.rx
+
+	move.w	#100,d1	; doesn't matter
+	bsr		store_sprite_pos
+	; store color
+	move.w	(a2,d2.w),(6,a1)
+	addq.w	#2,d2
+	cmp.w	#stars_palette_size,d2
+	bne.b	.write_pos
+	clr.w	d2
+.write_pos
+
+	; D0 is the sprite pos/control word
+	move.w	d0,18-8(a1)
+	swap	d0
+	move.w	d0,22-8(a1)
+
+	add.w	#44-8,a1
+	dbf		d7,.loop
+	rts
+.skip_pos
+	clr.l	d0
+	bra.b	.write_pos
+	
+
+update_stars
+	move.w	stars_timer(pc),d0
+	addq.w	#1,d0
+	cmp.w	#ORIGINAL_TICKS_PER_SEC,d0
+	bne.b	.nowrap
+	bsr		init_stars
+	clr.w	d0
+.nowrap
+	move.w	d0,stars_timer
+	rts
+	
 store_sprite_copperlist    
     move.w  d0,(6,a0)
     swap    d0
@@ -920,60 +980,6 @@ init_player:
 DEBUG_X = 8     ; 232+8
 DEBUG_Y = 8
 
-ghost_debug
-    lea enemies(pc),a2
-    move.w  #DEBUG_X,d0
-    move.w  #DEBUG_Y+100,d1
-    lea	screen_data+SCREEN_PLANE_SIZE*3,a1 
-
-    bsr .debug_ghost
-
-    move.w  #DEBUG_X,d0
-    add.w  #8,d1
-    lea .elroy(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.l  a2,a0
-
-    
-;    move.w  #DEBUG_X,d0
-;    add.w  #8,d1
-;    lea .dir(pc),a0
-;    bsr write_string
-;    lsl.w   #3,d0
-;    add.w  #DEBUG_X,d0
-;    clr.l   d2
-;    move.w  direction(a2),d2
-;    move.w  #0,d3
-;    bsr write_decimal_number
-;
-;    move.w  #DEBUG_X,d0
-;    add.w  #8,d1
-;    lea .pdir(pc),a0
-;    bsr write_string
-;    lsl.w   #3,d0
-;    add.w  #DEBUG_X,d0
-;    clr.l   d2
-;    move.w  possible_directions,d2
-;    move.w  #4,d3
-;    bsr write_hexadecimal_number
-    rts
-.debug_ghost
-    rts
-    
-.mode
-        dc.b    "MODE ",0
-
-.elroy:
-    dc.b    "ELROY ",0
-
-.gx
-        dc.b    "GX ",0
-.gy
-        dc.b    "GY ",0
-        even
 
         
 draw_debug
@@ -1109,7 +1115,6 @@ PLAYER_ONE_Y = 102-14
 .game_over
     cmp.l   #GAME_OVER_TIMER,state_timer
     bne.b   .draw_complete
-    bsr hide_sprites
     bsr clear_playfield_planes
 
     move.w  #72,d0
@@ -1131,6 +1136,7 @@ PLAYER_ONE_Y = 102-14
 	move.w	#0,d0
 	move.w	#29,d7
 	move.l	map_pointer(pc),a6
+	lea		ground_table(pc),a6
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
@@ -1195,7 +1201,7 @@ draw_tiles:
 	move.w	(a6)+,d2		; number of vertical tiles to draw
 	beq.b	.out	; not really possible, though
 	subq.w	#1,d2
-	lea		screen_data+SCREEN_PLANE_SIZE,a1	; 2nd playfield
+	lea		scroll_data,a1	; 2nd playfield
 	lea		tiles,a4
 	move.w	(a6)+,d1	; y start
 	move.w	d1,d3	; save Y
@@ -1209,7 +1215,7 @@ draw_tiles:
 	lea		(a4,d0.w),a0	; graphics
 	; cpu copy
 	move.l	a1,a2
-	lea		(SCREEN_PLANE_SIZE*2,a1),a3
+	lea		(SCROLL_PLANE_SIZE,a1),a3
 	moveq.w	#7,d0
 .copy
 	; copy both planes
@@ -1227,6 +1233,7 @@ draw_tiles:
 	; empty
 	neg.w	d3
 	add.w	#Y_MAX-1,d3
+	;lsr.w	#3,d3
 .fill
 	st.b	(a3)
 	add.w	#NB_BYTES_PER_LINE,a3
@@ -1294,7 +1301,6 @@ random:
 
     
 draw_start_screen
-    bsr hide_sprites
     bsr clear_screen
     
     bsr draw_title
@@ -1353,7 +1359,6 @@ draw_intro_screen
     bra.b   .no_change  ; should not be reached
 .init1    
     bsr clear_screen
-    bsr hide_sprites
     
 
         
@@ -1367,7 +1372,6 @@ draw_intro_screen
     ; (draw routine is called first)
     rts
 .init2
-    bsr hide_sprites
     bsr clear_screen
     bsr draw_score
     ; high scores
@@ -1414,7 +1418,6 @@ draw_intro_screen
     lea     .characters(pc),a0
     move.w  #$0F0,d2
     bsr write_color_string
-    bsr hide_sprites
 
     ; not the same configuration as game sprites:
     ; each sprite is there simultaneously
@@ -2357,6 +2360,7 @@ level3_interrupt:
     bne.b   .outcop
 .no_pause
     ; copper
+	bsr	update_stars
     bsr draw_all
     tst.b   debug_flag
     beq.b   .no_debug
@@ -2470,7 +2474,7 @@ update_all
     rts
 
 .bonus_level_completed
-    bsr hide_sprites
+
     bsr     stop_sounds
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
@@ -2499,7 +2503,6 @@ update_all
 	
     move.w  #STATE_NEXT_LEVEL,current_state
     clr.l   state_timer     ; without this, bonus level isn't drawn
-    bsr     hide_sprites    ; hide sprites as bonus level only uses 1 or 2 sprites
 .completed_music_playing
     rts
 .no_completed
@@ -3138,7 +3141,7 @@ draw_player:
     
     ; remove previous second plane before blitting the new one
     ; nice as it works in parallel with the first plane blit started above
-    lea	screen_data+SCREEN_PLANE_SIZE*2,a1
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
     move.l  a1,a2   ; just restored background
     tst.l   d5
     bmi.b   .no_erase2
@@ -3157,7 +3160,7 @@ draw_player:
     bsr blit_ship_cookie_cut
     lea (BOB_32X16_PLANE_SIZE,a0),a0
  
-    lea	screen_data+SCREEN_PLANE_SIZE*4,a1
+    lea	screen_data+SCREEN_PLANE_SIZE*2,a1
     move.l  a1,a2   ; just restored background
     tst.l   d5
     bmi.b   .no_erase4
@@ -3461,7 +3464,7 @@ blit_plane_any_internal_cookie_cut:
 
     lsl.l   #8,d7
     lsl.l   #4,d7
-    or.w    d7,d5            ; add shift to mask (bplcon1)
+    or.w    d7,d5            ; add shift to mask (bltcon1)
     swap    d7
     clr.w   d7
     or.l    d7,d5            ; add shift
@@ -3772,7 +3775,6 @@ write_blanked_color_string:
 	move.w  current_nb_colors(pc),d4
 	cmp.w	#16,d4
 	beq.b	.16_cols
-	add.w	d7,d7
 	moveq   #2,d3		; 8 colors (DPF)
 .16_cols
     move.w  d0,d4
@@ -3836,7 +3838,6 @@ write_color_string:
 	cmp.w	#16,d4
 	beq.b	.16_cols
 	moveq   #2,d3		; 8 colors (DPF)
-	add.w	d7,d7
 .16_cols
     move.w  d0,d4
 .plane_loop
@@ -4121,7 +4122,8 @@ death_frame_offset
 enemy_kill_frame
     dc.w    0
 
-
+stars_timer
+	dc.w	0
 current_nb_colors:
 	dc.w	0
 current_palette
@@ -4267,6 +4269,11 @@ player_one_string_clear
 
 
     even
+ground_table:
+	REPT	40
+	dc.w	0
+	dc.w	1,152,160
+	ENDR
 
     MUL_TABLE   40
     MUL_TABLE   26
@@ -4339,7 +4346,11 @@ SOUND_ENTRY:MACRO
 
 tiles:
 	include	"blocks.s"
-	
+
+stars_palette
+	include	"stars_palette.s"
+end_stars_palette
+
 menu_palette
     include "menu_palette.s"
 
@@ -4395,6 +4406,9 @@ record_input_table:
     include ptplayer.s
 
     SECTION  S5,DATA,CHIP
+
+
+
 ; main copper list
 coplist
    dc.l  $01080000
@@ -4407,8 +4421,18 @@ bitplanes:
 
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
+end_color_copper:
+   dc.w  diwstrt,$3081            ;  DIWSTRT
+   dc.w  diwstop,$28c1            ;  DIWSTOP
+   ; we don't need to set it here
+   ;dc.w  bplcon1,$0000            ;  BPLCON1 := 0x0000
+   ; proper sprite priority: below bitplanes for the stars effect
+   dc.w  bplcon2,$0000            ;  BPLCON2
+   dc.w  ddfstrt,$0038            ;  DDFSTRT := 0x0038
+   dc.w  ddfstop,$00d0            ;  DDFSTOP := 0x00d0
+      
 sprites:
-enemy_sprites:
+	IFEQ	1
     ; #0
     dc.w    sprpt+0,0
     dc.w    sprpt+2,0
@@ -4433,20 +4457,41 @@ enemy_sprites:
     ; #7
     dc.w    sprpt+28,0
     dc.w    sprpt+30,0
-end_color_copper:
-   dc.w  diwstrt,$3081            ;  DIWSTRT
-   dc.w  diwstop,$28c1            ;  DIWSTOP
-   ; proper sprite priority: above bitplanes
-   dc.w  $0102,$0000            ;  BPLCON1 := 0x0000
-   dc.w  $0104,$0024            ;  BPLCON2 := 0x0024
-   dc.w  $0092,$0038            ;  DDFSTRT := 0x0038
-   dc.w  $0094,$00d0            ;  DDFSTOP := 0x00d0
+	ENDC
+stars_sprites_copperlist:
+	REPT	NB_STAR_LINES
+	dc.b	$2C+REPTN*4
+	dc.b	1
+	dc.w	$FFFE
+    ; we use sprite #7 (last) for the stars, multiplexing it
+	dc.w	color+58,$F00	; 4
+    dc.w    spr+sd_SIZEOF*7+sd_ctl,0 ; 16
+    dc.w    spr+sd_SIZEOF*7+sd_pos,0 ; 20
+	; sprite pattern TEMP trash
+    dc.w    spr+sd_SIZEOF*7+sd_dataa,$8000	; 24
+    dc.w    spr+sd_SIZEOF*7+sd_dataB,$0000	; 28
+	dc.b	$2C+REPTN*4+1	; 32
+	dc.b	1
+	dc.w	$FFFE
+    dc.w    spr+sd_SIZEOF*7+sd_dataa,0	; 36
+    dc.w    spr+sd_SIZEOF*7+sd_dataB,0	; 40
+	ENDR
+
    dc.w  $FFDF,$FFFE            ; PAL wait (256)
    dc.w  $2201,$FFFE            ; PAL extra wait (around 288)
    dc.w intreq,$8010            ; generate copper interrupt
     dc.l    -2
 
-  
+;sprpt	    EQU   $120
+;
+;spr	    EQU   $140
+;
+;* SpriteDef
+;sd_pos	    EQU   $00
+;sd_ctl	    EQU   $02
+;sd_dataa    EQU   $04
+;sd_dataB    EQU   $06  
+;sd_SIZEOF   EQU   $08
 
 empty_16x16_bob
     ds.b    64*4,0
@@ -4477,7 +4522,11 @@ player_killed_raw_end
 
     even
 
-      
+star_sprite:
+	dc.l	-1
+	dc.w	0
+	dc.l	0
+	
 empty_sprite
     dc.l    0,0
 
@@ -4489,6 +4538,7 @@ empty_sprite
     ds.b    NB_BYTES_PER_LINE*NB_PLANES
 screen_data:
     ds.b    SCREEN_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_LINE,0
-
+scroll_data
+	ds.b	SCROLL_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_LINE,0
     
     	
