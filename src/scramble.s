@@ -146,7 +146,7 @@ ORIGINAL_TICKS_PER_SEC = 60
 
 
 NB_BYTES_PER_LINE = 40
-NB_BYTES_PER_MAZE_LINE = 26
+NB_BYTES_PER_PLAYFIELD_LINE = 28
 BOB_16X16_PLANE_SIZE = 64
 BOB_32X16_PLANE_SIZE = 96
 BOB_8X8_PLANE_SIZE = 16
@@ -393,7 +393,7 @@ Start:
 	; dual playfield
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
     clr.w bplcon1(a5)                     ; no scrolling
-    clr.w bplcon2(a5)                     ; pas de priorité
+    clr.w bplcon2(a5)                     ; no priority (sprites behind)
     move.w #0,bpl1mod(a5)                ; modulo de tous les plans = 40
     move.w #0,bpl2mod(a5)
 
@@ -504,6 +504,7 @@ intro:
     move.w  level_number(pc),d0
     btst    #0,d0
     
+	bsr	draw_ground	
     bsr draw_lives
     bsr draw_fuel
     move.w  #STATE_PLAYING,current_state
@@ -667,11 +668,11 @@ clear_debug_screen
     lea	screen_data+SCREEN_PLANE_SIZE*3,a1 
     move.w  #NB_LINES-1,d1
 .c0
-    move.w  #NB_BYTES_PER_MAZE_LINE/4-1,d0
+    move.w  #NB_BYTES_PER_PLAYFIELD_LINE/4-1,d0
 .cl
     clr.l   (a1)+
     dbf d0,.cl
-    add.w   #NB_BYTES_PER_LINE-NB_BYTES_PER_MAZE_LINE,a1
+    add.w   #NB_BYTES_PER_LINE-NB_BYTES_PER_PLAYFIELD_LINE,a1
     dbf d1,.c0
     movem.l (a7)+,d0-d1/a1
     rts
@@ -711,7 +712,7 @@ clear_playfield_plane
     movem.l d0-d1/a0-a1,-(a7)
     move.w #NB_LINES-1,d0
 .cp
-    move.w  #NB_BYTES_PER_MAZE_LINE/4-1,d1
+    move.w  #NB_BYTES_PER_PLAYFIELD_LINE/4-1,d1
     move.l  a1,a0
 .cl
     clr.l   (a0)+
@@ -728,10 +729,6 @@ init_new_play:
 	move.w	#8,d0		; 8 colors
 	bsr		load_palette	
 	
-	; temp red/yellow/blue palette for tiles
-	lea	_custom+color+16,a0
-	move.l	#$F00,(a0)+
-	move.l	#$F0FF0,(a0)+
 	
     clr.l   state_timer
  
@@ -920,6 +917,7 @@ init_player:
     bne.b   .no_clear
     clr.l   previous_player_address   ; no previous position
 .no_clear
+	
     move.w	level_number(pc),d0
 	add.w	d0,d0
 	lea		filling_tile_table(pc),a0
@@ -927,7 +925,10 @@ init_player:
 	add.w	d0,d0
 	lea		level_tiles(pc),a0
 	move.l	(a0,d0.w),map_pointer
-
+	clr.w	scroll_shift
+	clr.l	scroll_offset
+	clr.w	playfield_palette_index
+	bsr		next_playfield_palette
 
     lea player(pc),a0
 
@@ -1129,21 +1130,20 @@ PLAYER_ONE_Y = 102-14
     
     bra.b   .draw_complete
 .playing
+	; main game draw
     bsr draw_player
-
-	; TEMP TEMP
+	IFEQ	1
+	; scroll area
+	FUCK
+	map_pointer
+	dc.l	0
+scroll_shift
+	dc.w	0
+playfield_palette_index
+	dc.w	0
+scroll_offset
+	ENDC
 	
-	move.w	#0,d0
-	move.w	#29,d7
-	move.l	map_pointer(pc),a6
-	lea		ground_table(pc),a6
-.tileloop
-	bsr	draw_tiles
-	addq.w	#1,D0
-	dbf	d7,.tileloop
-
-   
-    
 .after_draw
         
     ; timer not running, animate
@@ -1997,7 +1997,7 @@ draw_the_lives
     rts
     
 draw_bonuses:
-    move.w #NB_BYTES_PER_MAZE_LINE*8,d0
+    move.w #NB_BYTES_PER_PLAYFIELD_LINE*8,d0
     move.w #248-32,d1
     move.w  level_number(pc),d2
     cmp.w   #6,d2
@@ -2013,26 +2013,15 @@ draw_bonuses:
     bmi.b   .outb
     add.w   #16,d0
     dbf d3,.dbloopx
-    move.w #NB_BYTES_PER_MAZE_LINE*8,d0
+    move.w #NB_BYTES_PER_PLAYFIELD_LINE*8,d0
     add.w   #16,d1
     dbf d4,.dbloopy
 .outb
     rts
     
-maze_misc
-    dc.l    level_1_maze,level_2_maze
-    dc.l    level_3_maze,level_4_maze
+
     
-level_1_maze
-    dc.w    $F00,$CC9,$00F
-level_2_maze
-    dc.w    $0F0,$FF0,$F00
-level_3_maze
-    dc.w    $0F0,$f91,$F0F
-level_4_maze
-    dc.w    $F00,$FF0,$0F0
-    
-draw_maze:
+draw_ground:
     bsr wait_blit
     
     ; set colors
@@ -2051,8 +2040,15 @@ draw_maze:
     
     bsr clear_playfield_planes
     
-    
-.no_clr
+	move.w	#0,d0
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
+	move.l	map_pointer(pc),a6
+	lea		ground_table(pc),a6
+.tileloop
+	bsr	draw_tiles
+	addq.w	#1,D0
+	dbf	d7,.tileloop	
+
     rts    
 
 
@@ -2524,6 +2520,17 @@ update_all
     ; for demo mode
     addq.w  #1,record_input_clock
 
+	; palette timer
+	move.w	playfield_palette_timer(pc),d0
+	add.w	#1,d0
+	cmp.w	#ORIGINAL_TICKS_PER_SEC*8,d0
+	bne.b	.no_palette_change
+	; change palette
+	bsr		next_playfield_palette
+	clr.w	d0
+.no_palette_change
+	move.w	d0,playfield_palette_timer
+	
     bsr update_player
     
     IFND    NO_ENEMIES
@@ -3284,7 +3291,7 @@ get_tile_type:
     add.w   #4,d1       ; center
 
     lsr.w   #3,d1       ; 8 divide : tile
-    lea     mul26_table(pc),a0
+    lea     mul28_table(pc),a0
     add.w   d1,d1
     move.w  (a0,d1.w),d1    ; times 26
     ;;move.l maze_wall_table(pc),a0
@@ -4131,6 +4138,16 @@ current_palette
 
 map_pointer
 	dc.l	0
+scroll_shift
+	dc.w	0
+playfield_palette_index
+	dc.w	0
+playfield_palette_timer
+	dc.w	0
+	
+scroll_offset
+	dc.l	0
+	
 
 nb_lives:
     dc.b    0
@@ -4270,13 +4287,13 @@ player_one_string_clear
 
     even
 ground_table:
-	REPT	40
+	REPT	28
 	dc.w	0
 	dc.w	1,152,160
 	ENDR
 
     MUL_TABLE   40
-    MUL_TABLE   26
+    MUL_TABLE   28
 
 square_table:
 	rept	256
@@ -4320,6 +4337,25 @@ play_fx
 .no_sound
     rts
     
+next_playfield_palette:
+	move.w	playfield_palette_index(pc),d0
+	lea	playfield_palettes(pc),a0
+	add.w	d0,a0
+	; load it
+	; first color is different
+	move.w	(a0)+,colors+2	; first color, in copperlist
+	lea		_custom+color+2+16,a1
+	move.w	(a0)+,(a1)+
+	move.w	(a0)+,(a1)+
+	move.w	(a0)+,(a1)+
+	; next
+	addq.w	#8,d0
+	cmp.w	#NB_PLAYFIELD_PALETTES*8,d0
+	bne.b	.no_wrap
+	clr.w	d0
+.no_wrap
+	move.w	d0,playfield_palette_index
+	rts
 
     
     
@@ -4346,6 +4382,12 @@ SOUND_ENTRY:MACRO
 
 tiles:
 	include	"blocks.s"
+
+NB_PLAYFIELD_PALETTES = (end_playfield_palettes-playfield_palettes)/8
+
+playfield_palettes
+	include	"playfield_palettes.s"
+end_playfield_palettes
 
 stars_palette
 	include	"stars_palette.s"
@@ -4427,7 +4469,7 @@ end_color_copper:
    ; we don't need to set it here
    ;dc.w  bplcon1,$0000            ;  BPLCON1 := 0x0000
    ; proper sprite priority: below bitplanes for the stars effect
-   dc.w  bplcon2,$0000            ;  BPLCON2
+   ;dc.w  bplcon2,$0000            ;  BPLCON2
    dc.w  ddfstrt,$0038            ;  DDFSTRT := 0x0038
    dc.w  ddfstop,$00d0            ;  DDFSTOP := 0x00d0
       
