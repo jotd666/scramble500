@@ -31,8 +31,8 @@ main_palette = [(0,0,0),
                 (128,0,208), # purple
                 ]
 
-# pad
-main_palette += [(0,0,0)] * (16-len(main_palette))
+# pad (not needed, all 8 colors are used)
+main_palette += [(0,0,0)] * (8-len(main_palette))
 
 tiles_palette = [(0,0,0),(240,0,0),(0,0,240),(240,240,0)]
 tiles_palette_level_5 = [(0,0,0),(32,208,0),(240,0,240),(240,240,0)]
@@ -144,7 +144,7 @@ def process_tiles(json_file):
     default_height = tiles["height"]
     default_horizontal = tiles["horizontal"]
 
-    game_palette_16 = [tuple(x) for x in tiles["palette"]]
+    game_palette_8 = [tuple(x) for x in tiles["palette"]]
 
 
     x_offset = tiles["x_offset"]
@@ -165,6 +165,7 @@ def process_tiles(json_file):
         generate_mask = object.get("generate_mask",False)
 
         blit_pad = object.get("blit_pad",True)
+        gap = object.get("gap",0)
         name = object["name"]
 
         start_x = object["start_x"]+x_offset
@@ -177,11 +178,11 @@ def process_tiles(json_file):
         nb_frames = object.get("frames",1)
         for i in range(nb_frames):
             if horizontal:
-                x = i*width+start_x
+                x = i*(width+gap)+start_x
                 y = start_y
             else:
                 x = start_x
-                y = i*height+start_y
+                y = i*(height+gap)+start_y
 
             area = (x, y, x + width, y + height)
             cropped_img = sprites.crop(area)
@@ -195,11 +196,13 @@ def process_tiles(json_file):
             x_size = cropped_img.size[0]
             sprite_number = object.get("sprite_number")
             sprite_palette = object.get("sprite_palette")
+            if sprite_palette:
+                sprite_palette = [tuple(x) for x in sprite_palette]
             if sprite_number is not None:
                 if x_size != 16:
                     raise Exception("{} (frame #{}) width (as sprite) should 16, found {}".format(name,i,x_size))
                 if sprite_palette:
-                    sprite_palette = [tuple(x) for x in sprite_palette]
+
                     bitplanelib.palette_dump(sprite_palette,"../{}/{}.s".format("src",name))
                 else:
                     sprite_palette_offset = 16+(sprite_number//2)*4
@@ -219,15 +222,15 @@ def process_tiles(json_file):
                 img = Image.new("RGB",(img_x,cropped_img.size[1]))
                 img.paste(cropped_img)
 
-                used_palette = game_palette_16
+                used_palette = sprite_palette or game_palette_8
 
                 namei = "{}_{}".format(name,i) if nb_frames!=1 else name
 
                 print("processing bob {}, mask {}...".format(name,generate_mask))
                 bitplanelib.palette_image2raw(img,"{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,
-                forced_nb_planes=3,palette_precision_mask=0xF0,generate_mask=generate_mask)
+                palette_precision_mask=0xF0,generate_mask=generate_mask)
 
-    return game_palette_16
+    return game_palette_8
 
 def process_fonts(dump=False):
     json_file = "fonts.json"
@@ -304,12 +307,12 @@ def process_fonts(dump=False):
             namei = "{}_{}".format(name,i) if nb_frames != 1 else name
             bitplanelib.palette_image2raw(img,"{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,palette_precision_mask=0xF0)
 
-process_maps()
+#process_maps()
 
 
 #process_tiles("tiles_gray.json")
 # 8 colors of ship & objects playfield
-#game_palette = process_tiles("tiles_color.json")
+game_palette = process_tiles("tiles_color.json")
 #bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
 
 

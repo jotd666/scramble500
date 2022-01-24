@@ -66,6 +66,14 @@
  "start_y":61,
  "width":32
 },
+{"name":"life",
+"generate_mask":false,
+"blit_pad":false,
+ "start_x":1,
+ "start_y":78,
+ "width":16,
+ "height":8
+ },
 {"name":"explosion_1",
      "generate_mask":true,
  "start_x":121,
@@ -155,8 +163,59 @@
      "generate_mask":true,
  "start_x":121,
  "start_y":79
+},
+{"name":"levels_25",
+"start_x":1,
+"start_y":181,
+"width":32,
+"height":8,
+"frames":4
+},
+{"name":"levels_1b",
+"start_x":1,
+"start_y":191,
+"width":32,
+"height":8,
+"frames":2,
+"gap":2
+},
+{"name":"fuel_level",
+"blit_pad":false,
+"generate_mask":false,
+"sprite_palette":[[0, 0, 0],
+ [224, 0, 0],
+ [224, 0, 208],
+ [224, 48, 0],
+ [0, 0, 208],
+  [0, 0, 0],
+ [192, 192, 208],
+[224, 224, 0]],
+ "start_x":1,
+ "start_y":171,
+ "width":8,
+ "height":8,
+ "frames":9,
+ "gap":2
+},
+{"name":"enemies_1",
+"start_x":175,
+"start_y":7,
+"width":16,
+"height":60
+},
+{"name":"enemies_2",
+"sprite_palette":[[0, 0, 0],
+ [224, 0, 0],
+ [224, 0, 208],
+ [224, 48, 0],
+ [16, 192, 0],
+ [0, 0, 208],
+ [192, 192, 208],
+ [224, 224, 0]],
+"start_x":175,
+"start_y":71,
+"width":16,
+"height":64
 }
-
- 
  ]
 }

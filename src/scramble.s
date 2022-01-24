@@ -204,6 +204,7 @@ STATE_LIFE_LOST = 3*4
 STATE_INTRO_SCREEN = 4*4
 STATE_GAME_START_SCREEN = 5*4
 
+DYN_COLOR = 4
 
 ; offset for enemy animations
 
@@ -639,10 +640,12 @@ intro:
 
 ; < A0: palette
 ; < D0: nb colors
+
 load_palette
     lea _custom+color,a1
 	move.w	d0,current_nb_colors
 	move.l	a0,current_palette
+	move.w	(DYN_COLOR*2,a0),sixth_color
     subq.w	#1,d0
 	
 .copy
@@ -727,8 +730,7 @@ clear_playfield_plane
 init_new_play:
     lea objects_palette,a0
 	move.w	#8,d0		; 8 colors
-	bsr		load_palette	
-	
+	bsr		load_palette		
 	
     clr.l   state_timer
  
@@ -912,7 +914,7 @@ init_enemies
 
 init_player:
     clr.w   death_frame_offset
-	
+	move.w	#250,fuel
     tst.b   new_life_restart
     bne.b   .no_clear
     clr.l   previous_player_address   ; no previous position
@@ -1302,7 +1304,11 @@ random:
     
 draw_start_screen
     bsr clear_screen
-    
+    bsr	clear_playfield_planes
+    lea menu_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette		
+	
     bsr draw_title
     
 	
@@ -1360,6 +1366,9 @@ draw_intro_screen
 .init1    
     bsr clear_screen
     
+    lea menu_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette	
 
         
     lea    .play(pc),a0
@@ -1368,6 +1377,17 @@ draw_intro_screen
     move.w  #$ff0,d2
     bsr write_color_string    
     bsr draw_title
+    lea    .how_far_1(pc),a0
+    move.w  #24,d0
+    move.w  #136-24,d1
+    move.w  #$0f40,d2
+    bsr write_color_string 
+	
+    lea    .how_far_2(pc),a0
+    move.w  #24,d0
+    move.w  #136,d1
+    bsr write_color_string 
+	
     ; first update, don't draw enemies or anything as they're not initialized
     ; (draw routine is called first)
     rts
@@ -1415,32 +1435,65 @@ draw_intro_screen
     ; characters
     move.w  #56,d0
     move.w  #56-24,d1
-    lea     .characters(pc),a0
-    move.w  #$0F0,d2
+    lea     .score_table(pc),a0
+    move.w  #$FF0,d2
     bsr write_color_string
 
-    ; not the same configuration as game sprites:
-    ; each sprite is there simultaneously
+	; load playfield palette, almost same as menu palette, just
+	; one color difference to be able to display enemies with
+	; accurate palette, since all enemies require 9 colors
 
-    ;;lea game_palette+32(pc),a0  ; the sprite part of the color palette 16-31    
-    moveq.w #0,d0
-    ; first sprite palette
-    bsr .load_palette
+    lea objects_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette	
 
-    ;;lea game_palette+32+24(pc),a0  ; we cheat, use sprite 4 with palette of 6-7
-    moveq.w #2,d0
-    ; thief guard sprite palette
-    bsr .load_palette
+	lea	objects_palette(pc),a0
+    lea _custom+color+16,a1	; second playfield
+    moveq.w	#7,d0
+.copy
+    move.w  (a0)+,(a1)+
+    dbf d0,.copy
+	; change one color (mystery ship)
+	move.w	#$00E,_custom+color+16+10
     
-    ;;lea alt_sprite_palette+8(pc),a0  ; we cheat, use sprite 4 with palette of 6-7
-    ; thief guard sprite palette
-    ;;moveq.w #4,d0
-    ;;bsr .load_palette
-    
+	lea	enemies_1,a0
+	lea	screen_data,a1
+	move.w	#2,d3
+	move.w	#64,d0
+	move.w	#50,d1
+.draw1
+	
+    movem.l d0-d6/a0-a5,-(a7)
+    lea $DFF000,A5
+	moveq.l #-1,d3
+    move.w  #4,d2       ; 16 pixels + 2 shift bytes
+    move.w  #60,d4      ; 16 pixels height
+    bsr blit_plane_any_internal
+    movem.l (a7)+,d0-d6/a0-a5
+	add.w	#4*60,a0
+	add.w	#SCREEN_PLANE_SIZE,a1
+	dbf		d3,.draw1
+	
+	lea	enemies_2,a0
+	lea	scroll_data,a1
+	move.w	#2,d3
+	move.w	#64,d0
+	move.w	#146-24,d1
+.draw2
+	
+    movem.l d0-d6/a0-a5,-(a7)
+    lea $DFF000,A5
+	moveq.l #-1,d3
+    move.w  #4,d2       ; 16 pixels + 2 shift bytes
+    move.w  #64,d4      ; 16 pixels height
+    bsr blit_plane_any_internal
+    movem.l (a7)+,d0-d6/a0-a5
+	add.w	#4*64,a0
+	add.w	#SCROLL_PLANE_SIZE,a1
+	dbf		d3,.draw2
+	
     bra draw_copyright
     
-
-    ;;move.l  a3,a0
     
 .no_change
     ; just draw single cattle
@@ -1484,59 +1537,6 @@ draw_intro_screen
     
     cmp.b   #3,d0
     bne.b   .no_part3
-	IFEQ	1
-    ; blit characters
-    move.w  #56,d3
-    move.w  #72-24,d4
-    move.w  d3,d0
-    move.w  d4,d1
-    lea copier_anim_right,a0
-    move.w  #$F,d2
-    bsr .draw_bob
-
-    add.w   #ENEMY_Y_SPACING,d4
-    move.w  d4,d1
-    add.w   #3,d1
-    lea police1_frame_table,a0
-    lea intro_green_police,a1
-    move.w  #3,d2   ; 4 frames
-    bsr .load_sprite
-    
-    move.w  d3,d0
-    add.w   #ENEMY_Y_SPACING,d4
-    move.w  d4,d1
-    add.w   #3,d1
-    lea police2_frame_table,a0
-    lea thief_sprite,a1
-    move.w  #3,d2   ; 4 frames
-    bsr .load_sprite
-    
-    move.w  d3,d0
-    add.w   #ENEMY_Y_SPACING,d4
-    move.w  d4,d1
-    
-    lea rustler_anim_right,a0
-    move.w  #$F,d2
-    bsr .draw_bob
-    
-    move.w  d3,d0
-    add.w   #ENEMY_Y_SPACING,d4
-    move.w  d4,d1
-    add.w   #3,d1
-    lea cattle1_frame_table,a0
-    lea intro_cattle_pink,a1
-    move.w  #1,d2
-    bsr .load_sprite
-    
-    move.w  d3,d0
-    add.w   #ENEMY_Y_SPACING,d4
-    move.w  d4,d1
-    add.w   #3,d1
-    lea cattle2_frame_table,a0
-    lea intro_cyan_cattle,a1
-    move.w  #1,d2
-    bsr .load_sprite
-    ENDC
 	
     lea draw_char_command(pc),a1
     tst.b   (5,a1)
@@ -1547,7 +1547,7 @@ draw_intro_screen
     move.w  (a1)+,d1
     move.b  (a1)+,(a0)
     clr.b   (a1)    ; ack
-    move.w  #$FF,d2
+    move.w  #$FFF,d2
     bsr write_color_string
 .nothing_to_print
     rts
@@ -1616,16 +1616,6 @@ draw_intro_screen
     move.l  (a0,d6.w),a0
     rts
     
-.load_palette
-    lea _custom+color+32,a1
-    lsr.w   #1,d0
-    lsl.w   #3,d0
-    add.w   d0,a1
-
-    move.l  (a0,d0.w),(a1)+
-    move.l  (4,a0,d0.w),(a1)
-    rts
-
 
 .color_table
     dc.w    $0FF,$0FF,$FFF,$FFF,$FF0,$FF0,$0F0,$0F0,$F00,$F00
@@ -1646,12 +1636,16 @@ draw_intro_screen
     dc.b    0,0
 .toggle
     dc.b    0
-.characters
-    dc.b    "-  CHARACTER  -",0
+.score_table
+    dc.b    "-- SCORE TABLE --",0
 .play
     dc.b    "PLAY",0
 .pts
-    dc.b    "0 PTS  hhh",0
+    dc.b    "0 PTS  ...",0
+.how_far_1
+	dc.b	"HOW FAR CAN YOU INVADE",0
+.how_far_2
+	dc.b	" OUR SCRAMBLE SYSTEM ?",0
     
 .pos1
     dc.b    "1ST",0
@@ -1723,31 +1717,17 @@ draw_title
     move.w  #$0dd,d2
     bsr write_color_string 
 	
-    lea    .how_far_1(pc),a0
-    move.w  #24,d0
-    move.w  #136-24,d1
-    move.w  #$0f40,d2
-    bsr write_color_string 
-	
-    lea    .how_far_2(pc),a0
-    move.w  #24,d0
-    move.w  #136,d1
-    bsr write_color_string 
 	
 	
     bra.b   draw_copyright
 
 .title
     dc.b    '- SCRAMBLE -',0
-.how_far_1
-	dc.b	"HOW FAR CAN YOU INVADE",0
-.how_far_2
-	dc.b	" OUR SCRAMBLE SYSTEM ?",0
     even
 draw_copyright
     lea    .copyright(pc),a0
     move.w  #64,d0
-    move.w  #222-24,d1
+    move.w  #221-24,d1
     move.w  #$0fff,d2
     bra write_color_string    
 .copyright
@@ -1927,17 +1907,44 @@ clear_plane_any_blitter_internal:
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
     rts
 
+FUEL_OFFSET = 220*NB_BYTES_PER_LINE+8
     
+; draw fuel text & full amount
+
 draw_fuel:
-	rts
-    ;;move.b  nb_stars(pc),d7
-    subq.b  #1,d7
-    ext     d7    
-.lloop
-    ;;lea star,a0
-    lea	screen_data+0,a1
-    add.l   d7,a1
-    moveq   #3,d2
+	lea	.fuel_text(pc),a0
+	move.w	#24,d0
+	move.w	#220,d1
+	move.w	#$EE0,d2
+	bsr		write_color_string
+	moveq.w	#15,d6
+	move.w  fuel(pc),d7	
+	lsr.w	#1,d7	; only shows rounded value
+	clr.w	d0
+.lloop	
+	lea	screen_data+FUEL_OFFSET,a1
+	add.w	d0,a1
+	tst.w	d7
+	beq.b	.zero
+	subq.w	#8,d7
+	bcs.b	.lower_than_8
+	; full fuel icon
+	lea	fl_8(pc),a0
+	bra.b	.draw_fuel_tile
+.zero
+	lea	fl_0(pc),a0
+	bra.b	.draw_fuel_tile
+.lower_than_8
+	add.w	#8,d7
+	lea		fuel_levels(pc),a2
+	move.w	d7,d1
+	add.w	d1,d1
+	add.w	d1,d1
+	move.l	(a2,d1.w),a0
+	clr.w	d7
+.draw_fuel_tile
+    
+	moveq.w	#NB_PLANES-1,d2
 .ploop
     move.l  a1,a2
     REPT    8
@@ -1946,18 +1953,22 @@ draw_fuel:
     ENDR
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf     d2,.ploop
-    dbf d7,.lloop
+	addq.w	#1,d0
+	dbf	d6,.lloop
+
 .out
 	rts
-        
-LIVES_OFFSET = 220*NB_BYTES_PER_LINE+1
+.fuel_text
+	dc.b	"FUEL",0
+	even
+LIVES_OFFSET = 236*NB_BYTES_PER_LINE
 
 draw_last_life
     move.w   #1,d0      ; draw only last life
     bra.b   draw_the_lives
     
 draw_lives:
-    moveq.w #3,d7
+    moveq.w #NB_PLANES-1,d7
     lea	screen_data+LIVES_OFFSET,a1
 .cloop
     moveq.l #0,d0
@@ -1981,11 +1992,13 @@ draw_the_lives
     lea lives,a0
     lea	screen_data+LIVES_OFFSET,a1
     add.w   d7,a1
-    moveq   #3,d2    
+    add.w   d7,a1
+    moveq   #NB_PLANES-1,d2    
 .ploop
     move.l  a1,a2
     REPT    8
     move.b  (a0)+,(a2)
+    move.b  (a0)+,(1,a2)
     add.w   #NB_BYTES_PER_LINE,a2
     ENDR
     add.w   #SCREEN_PLANE_SIZE,a1
@@ -2617,7 +2630,8 @@ update_intro_screen
     tst.w   high_score_position
     bpl.b   .second
     
-    move.b  #1,intro_step
+    move.b  #3,intro_step	; TEMP
+    move.b  #3,intro_step	; TEMP
     st.b    intro_state_change
 
     clr.l	d0
@@ -2824,17 +2838,19 @@ update_intro_screen
     dc.l    .text3
     dc.l    .text4
     dc.l    .text5
-    dc.l    .text3
+    dc.l    .text6
 .text1:
-    dc.b    "hhh  COPIER",0
+    dc.b    "... 50 PTS",0
 .text2:
-    dc.b    "hhh  POLICE",0
+    dc.b    "... 80 PTS",0
 .text3:
-    dc.b    "hhh  THIEF",0
+    dc.b    "... 100 PTS",0
 .text4:
-    dc.b    "hhh  RUSTLER",0
+    dc.b    "... 150 PTS",0
 .text5:
-    dc.b    "hhh  CATTLE",0
+    dc.b    "... 800 PTS",0
+.text6:
+    dc.b    "... MYSTERY",0
     even
 
     
@@ -3778,12 +3794,7 @@ write_blanked_color_string:
     ; d5: color index
     lea screen_data,a1
 	move.w	#SCREEN_PLANE_SIZE,d7
-    moveq   #3,d3
-	move.w  current_nb_colors(pc),d4
-	cmp.w	#16,d4
-	beq.b	.16_cols
 	moveq   #2,d3		; 8 colors (DPF)
-.16_cols
     move.w  d0,d4
 .plane_loop
 ; < A0: c string
@@ -3840,12 +3851,7 @@ write_color_string:
     ; d5: color index
     lea screen_data,a1
 	move.w	#SCREEN_PLANE_SIZE,d7
-    moveq   #3,d3
-	move.w  current_nb_colors(pc),d4
-	cmp.w	#16,d4
-	beq.b	.16_cols
 	moveq   #2,d3		; 8 colors (DPF)
-.16_cols
     move.w  d0,d4
 .plane_loop
 ; < A0: c string
@@ -4144,6 +4150,8 @@ playfield_palette_index
 	dc.w	0
 playfield_palette_timer
 	dc.w	0
+fuel:
+	dc.w	0
 	
 scroll_offset
 	dc.l	0
@@ -4153,7 +4161,6 @@ nb_lives:
     dc.b    0
 level_completed_flag
 	dc.b	0
-
 new_life_restart:
     dc.b    0
 
@@ -4265,6 +4272,35 @@ qmark
     incbin  "qmark.bin"
 copyright
     incbin  "copyright.bin"
+	even
+fuel_levels:
+	dc.l	fl_0
+	dc.l	fl_1
+	dc.l	fl_2
+	dc.l	fl_3
+	dc.l	fl_4
+	dc.l	fl_5
+	dc.l	fl_6
+	dc.l	fl_7
+	
+fl_0:
+	incbin	"fuel_level_8.bin"
+fl_1:
+	incbin	"fuel_level_7.bin"
+fl_2:
+	incbin	"fuel_level_6.bin"
+fl_3:
+	incbin	"fuel_level_5.bin"
+fl_4:
+	incbin	"fuel_level_4.bin"
+fl_5:
+	incbin	"fuel_level_3.bin"
+fl_6:
+	incbin	"fuel_level_2.bin"
+fl_7:
+	incbin	"fuel_level_1.bin"
+fl_8:
+	incbin	"fuel_level_0.bin"	
 space
     ds.b    8,0
     
@@ -4463,6 +4499,9 @@ bitplanes:
 
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
+   dc.w color+DYN_COLOR*2
+sixth_color:
+	dc.w	$1c0     ; green or gray
 end_color_copper:
    dc.w  diwstrt,$3081            ;  DIWSTRT
    dc.w  diwstop,$28c1            ;  DIWSTOP
@@ -4516,8 +4555,10 @@ stars_sprites_copperlist:
 	dc.b	1
 	dc.w	$FFFE
     dc.w    spr+sd_SIZEOF*7+sd_dataa,0	; 36
-    dc.w    spr+sd_SIZEOF*7+sd_dataB,0	; 40
+    dc.w    spr+sd_SIZEOF*7+sd_dataB,0	; 40	
 	ENDR
+	;;dc.b	$2C+(NB_STAR_LINES-1)*4+2,1
+    dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
 
    dc.w  $FFDF,$FFFE            ; PAL wait (256)
    dc.w  $2201,$FFFE            ; PAL extra wait (around 288)
@@ -4539,9 +4580,14 @@ empty_16x16_bob
     ds.b    64*4,0
 
 	
-lives
+lives:
     incbin  "life.bin"
 
+enemies_1
+	incbin	"enemies_1.bin"
+enemies_2
+	incbin	"enemies_2.bin"
+	
 ship_1:
 	incbin	"ship_1.bin"
 ship_2:
@@ -4552,6 +4598,15 @@ ship_4:
 	incbin	"ship_4.bin"
 	
 
+	
+level_number_tiles:
+	incbin	"levels_1b_0.bin"
+	incbin	"levels_25_0.bin"
+	incbin	"levels_25_1.bin"
+	incbin	"levels_25_2.bin"
+	incbin	"levels_25_3.bin"
+	incbin	"levels_1b_1.bin"
+	
 extra_life_raw
     incbin  "extra_life.raw"
     even
