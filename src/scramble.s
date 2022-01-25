@@ -90,7 +90,7 @@ MODE_KILL = 1<<2
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -158,7 +158,7 @@ NB_PLANES   = 3
 
 
 X_MAX=240
-Y_MAX=220
+Y_MAX=228
 X_SHIP_MAX=160  ; probably not that value
 Y_SHIP_MIN=24
 Y_SHIP_MAX=Y_MAX-16
@@ -508,6 +508,8 @@ intro:
 	bsr	draw_ground	
     bsr draw_lives
     bsr draw_fuel
+	bsr	draw_level_map
+	bsr	draw_current_level
     move.w  #STATE_PLAYING,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
 .mainloop
@@ -645,7 +647,7 @@ load_palette
     lea _custom+color,a1
 	move.w	d0,current_nb_colors
 	move.l	a0,current_palette
-	move.w	(DYN_COLOR*2,a0),sixth_color
+	move.w	(DYN_COLOR*2,a0),dyn_color_reset
     subq.w	#1,d0
 	
 .copy
@@ -1234,11 +1236,15 @@ draw_tiles:
 	bne.b	.ft
 	; empty
 	neg.w	d3
-	add.w	#Y_MAX-1,d3
-	;lsr.w	#3,d3
+	add.w	#Y_MAX,d3
+	lsr.w	#3,d3
+	
 .fill
+	REPT	7
 	st.b	(a3)
 	add.w	#NB_BYTES_PER_LINE,a3
+	ENDR
+	st.b	(a3)
 	dbf	d3,.fill
 .ft
 	
@@ -1907,14 +1913,68 @@ clear_plane_any_blitter_internal:
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
     rts
 
-FUEL_OFFSET = 220*NB_BYTES_PER_LINE+8
+draw_level_map
+    lea $DFF000,A5
+
+	lea	level_number_tiles,a0
+	clr.w	d1		; Y=0
+	move.w	#16,d0	; X=16
+	move.w	#5,d7	; 6 tiles
+
+	moveq.l #-1,d3		; no mask
+    move.w  #6,d2       ; 32 pixels + 2 shift bytes
+    move.w  #8,d4      ; 8 pixels height
+.lloop
+	move.w	#2,d5		; 3 planes
+	;;move.l	a2,a0	; next level pic
+	lea		screen_data,a1
+.ploop
+    movem.l d0-d6/a1-a4,-(a7)
+    bsr blit_plane_any_internal
+    movem.l (a7)+,d0-d6/a1-a4
+	add.w	#6*8,a0
+	add.w	#SCREEN_PLANE_SIZE,a1
+	dbf		d5,.ploop
+	add.w	#32,d0
+	dbf		d7,.lloop
+	rts
+	
+draw_current_level
+    lea $DFF000,A5
+	move.w	#16,d0	; X=16
+	move.w	#8,d1
+	move.w	#5,d7	; 6 tiles
+	clr.w	d6
+	moveq.l #-1,d3		; no mask
+    move.w  #6,d2       ; 32 pixels + 2 shift bytes
+    move.w  #8,d4      ; 8 pixels height
+.lloop
+	move.w	#2,d5		; 3 planes
+	lea		screen_data,a1
+	lea		purple_level_mark,a0
+	cmp.w	level_number(pc),d6
+	bne.b	.ploop
+	lea		red_level_mark,a0
+.ploop
+    movem.l d0-d6/a1-a4,-(a7)
+    bsr blit_plane_any_internal
+    movem.l (a7)+,d0-d6/a1-a4
+	add.w	#6*8,a0
+	add.w	#SCREEN_PLANE_SIZE,a1
+	dbf		d5,.ploop
+	add.w	#32,d0
+	addq.w	#1,d6
+	dbf		d7,.lloop
+	rts
+	
+FUEL_OFFSET = Y_MAX*NB_BYTES_PER_LINE+8
     
 ; draw fuel text & full amount
 
 draw_fuel:
 	lea	.fuel_text(pc),a0
 	move.w	#24,d0
-	move.w	#220,d1
+	move.w	#Y_MAX,d1
 	move.w	#$EE0,d2
 	bsr		write_color_string
 	moveq.w	#15,d6
@@ -2035,7 +2095,6 @@ draw_bonuses:
 
     
 draw_ground:
-    bsr wait_blit
     
     ; set colors
     ; the trick with dots is to leave them one plane 1 alone
@@ -4325,7 +4384,7 @@ player_one_string_clear
 ground_table:
 	REPT	28
 	dc.w	0
-	dc.w	1,152,160
+	dc.w	1,200-24,160
 	ENDR
 
     MUL_TABLE   40
@@ -4500,7 +4559,7 @@ bitplanes:
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
    dc.w color+DYN_COLOR*2
-sixth_color:
+dyn_color_reset:
 	dc.w	$1c0     ; green or gray
 end_color_copper:
    dc.w  diwstrt,$3081            ;  DIWSTRT
@@ -4606,6 +4665,12 @@ level_number_tiles:
 	incbin	"levels_25_2.bin"
 	incbin	"levels_25_3.bin"
 	incbin	"levels_1b_1.bin"
+	
+purple_level_mark
+	incbin	"purple_level_mark.bin"
+
+red_level_mark
+	incbin	"red_level_mark.bin"
 	
 extra_life_raw
     incbin  "extra_life.raw"
