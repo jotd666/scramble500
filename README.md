@@ -29,16 +29,7 @@ CONTROLS:
 
 HOW TO PLAY:
 
-- 
 
-level status: y=0
-top display: 40-24
-ground level: 200-24
-stars: multiplexed sprites, priority below all playfields
-fuel: 26,216
-ship start pos: 8,60
-anim fusee 1 coup sur 6 (10Hz)
-lives        level
 
 CREDITS:
 

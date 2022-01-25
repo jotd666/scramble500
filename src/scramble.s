@@ -90,7 +90,7 @@ MODE_KILL = 1<<2
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -204,6 +204,16 @@ STATE_LIFE_LOST = 3*4
 STATE_INTRO_SCREEN = 4*4
 STATE_GAME_START_SCREEN = 5*4
 
+; if you change that color index, make sure
+; that you also change it in the tiles json
+; specific palette
+;
+; this color is set as 3 different values:
+; - for the magenta level rectangle fill color
+; - normal operation
+; - fuel bar blue filler
+;
+; but just why would you need to change it?
 DYN_COLOR = 4
 
 ; offset for enemy animations
@@ -2689,8 +2699,7 @@ update_intro_screen
     tst.w   high_score_position
     bpl.b   .second
     
-    move.b  #3,intro_step	; TEMP
-    move.b  #3,intro_step	; TEMP
+    move.b  #1,intro_step
     st.b    intro_state_change
 
     clr.l	d0
@@ -4559,6 +4568,12 @@ bitplanes:
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
    dc.w color+DYN_COLOR*2
+   dc.w	$80D	; force magenta on color 4 (level filler)
+	dc.b	$30+15	; wait till we pass the purple rectangles
+	dc.b	1
+	dc.w	$FFFE   
+	; and reset the color to what it was in the palette
+   dc.w color+DYN_COLOR*2
 dyn_color_reset:
 	dc.w	$1c0     ; green or gray
 end_color_copper:
@@ -4600,7 +4615,7 @@ sprites:
 	ENDC
 stars_sprites_copperlist:
 	REPT	NB_STAR_LINES
-	dc.b	$2C+REPTN*4
+	dc.b	$2C+REPTN*4+2
 	dc.b	1
 	dc.w	$FFFE
     ; we use sprite #7 (last) for the stars, multiplexing it
@@ -4610,7 +4625,7 @@ stars_sprites_copperlist:
 	; sprite pattern TEMP trash
     dc.w    spr+sd_SIZEOF*7+sd_dataa,$8000	; 24
     dc.w    spr+sd_SIZEOF*7+sd_dataB,$0000	; 28
-	dc.b	$2C+REPTN*4+1	; 32
+	dc.b	$2C+REPTN*4+3	; 32
 	dc.b	1
 	dc.w	$FFFE
     dc.w    spr+sd_SIZEOF*7+sd_dataa,0	; 36
