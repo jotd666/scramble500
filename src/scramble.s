@@ -90,7 +90,7 @@ MODE_KILL = 1<<2
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -403,13 +403,14 @@ Start:
 	
 	; dual playfield
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
-    clr.w bplcon1(a5)                     ; no scrolling
     clr.w bplcon2(a5)                     ; no priority (sprites behind)
     move.w #0,bpl1mod(a5)                ; modulo de tous les plans = 40
     move.w #0,bpl2mod(a5)
 
 intro:
     lea _custom,a5
+    clr.w bplcon1(a5)                     ; reset scrolling shift to 0
+
     move.w  #$7FFF,(intena,a5)
     move.w  #$7FFF,(intreq,a5)
 
@@ -939,7 +940,7 @@ init_player:
 	add.w	d0,d0
 	lea		level_tiles(pc),a0
 	move.l	(a0,d0.w),map_pointer
-	clr.w	scroll_shift
+	move.w	#15,scroll_shift
 	clr.l	scroll_offset
 	clr.w	playfield_palette_index
 	bsr		next_playfield_palette
@@ -1146,17 +1147,9 @@ PLAYER_ONE_Y = 102-14
 .playing
 	; main game draw
     bsr draw_player
-	IFEQ	1
-	; scroll area
-	FUCK
-	map_pointer
-	dc.l	0
-scroll_shift
-	dc.w	0
-playfield_palette_index
-	dc.w	0
-scroll_offset
-	ENDC
+
+	bsr	draw_scrolling_tiles
+
 	
 .after_draw
         
@@ -1204,7 +1197,8 @@ stop_sounds
 ; < D0: x offset in bytes
 ; > A6: new map pointer
 draw_tiles:
-	movem.l	d0-d2/A0-a3,-(a7)
+	movem.l	d0-d4/A0-a3,-(a7)
+	move.w	#NB_BYTES_PER_LINE,d4	; we'll need this value A LOT
 	; upper part
 	move.w	(a6)+,d2
 	beq.b	.lower
@@ -1216,13 +1210,33 @@ draw_tiles:
 	beq.b	.out	; not really possible, though
 	subq.w	#1,d2
 	lea		scroll_data,a1	; 2nd playfield
+	add.w	d0,a1		; add x offset
+	
 	lea		tiles,a4
 	move.w	(a6)+,d1	; y start
+	add.w	#36,d1		; offset
 	move.w	d1,d3	; save Y
+	lsr.w	#3,d3
+	subq.w	#1,d3
+	; clear the space above ground
+	move.l	a1,a2
+	lea		(SCROLL_PLANE_SIZE,a1),a3
+.clear
+	REPT	8
+	clr.b	(1,a3)
+	clr.b	(1,a2)
+	clr.b	(a3)
+	clr.b	(a2)
+	add.w	d4,a3
+	add.w	d4,a2
+	ENDR
+	dbf	d3,.clear
+	
+	move.w	d1,d3	; save Y
+	
 	lea		mul40_table(pc),a2
 	add.w	d1,d1
 	add.w	(a2,d1.w),a1	; offset
-	add.w	d0,a1		; add x offset
 
 .lowerloop:
 	move.w	(a6)+,d0	; tile id
@@ -1230,36 +1244,39 @@ draw_tiles:
 	; cpu copy
 	move.l	a1,a2
 	lea		(SCROLL_PLANE_SIZE,a1),a3
-	moveq.w	#7,d0
 .copy
 	; copy both planes
+	REPT	8
 	move.b	(8,a0),(a3)
 	move.b	(a0)+,(a2)
-	add.w	#NB_BYTES_PER_LINE,a2
-	add.w	#NB_BYTES_PER_LINE,a3
-	dbf		d0,.copy
+	add.w	d4,a2
+	add.w	d4,a3
+	ENDR
+
 	add.w	#NB_BYTES_PER_LINE*8,a1
-	addQ.w	#8,d3
+	addq.w	#8,d3
 	dbf		d2,.lowerloop
 	; now fill the rest with filler tile or nothing
 	move.w	filling_tile(pc),d0
 	bne.b	.ft
 	; empty
 	neg.w	d3
-	add.w	#Y_MAX,d3
+	add.w	#Y_MAX-8,d3
 	lsr.w	#3,d3
-	
 .fill
-	REPT	7
+	REPT	8
 	st.b	(a3)
-	add.w	#NB_BYTES_PER_LINE,a3
+	clr.b	(a2)
+	st.b	(1,a3)
+	clr.b	(1,a2)
+	add.w	d4,a3
+	add.w	d4,a2
 	ENDR
-	st.b	(a3)
 	dbf	d3,.fill
 .ft
 	
 .out
-	movem.l	(a7)+,d0-d2/A0-a3
+	movem.l	(a7)+,d0-d4/A0-a3
 	rts
 	
 .end
@@ -2105,26 +2122,10 @@ draw_bonuses:
 
     
 draw_ground:
-    
-    ; set colors
-    ; the trick with dots is to leave them one plane 1 alone
-    ; when the bits intersect with maze lines, we get the same color
-    ; because the color entry is duplicated
-    ;
-    ; this allows to blit main character on planes 0, 2, 3 without any interaction
-    ; (except very marginal visual color change) on plane 1
-    lea _custom+color,a0
-    move.w  level_number(pc),d0
-    and.w   #3,d0
-    add.w   d0,d0
-    add.w   d0,d0
-
-    
     bsr clear_playfield_planes
     
 	move.w	#0,d0
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
-	move.l	map_pointer(pc),a6
 	lea		ground_table(pc),a6
 .tileloop
 	bsr	draw_tiles
@@ -2613,6 +2614,8 @@ update_all
 .no_palette_change
 	move.w	d0,playfield_palette_timer
 	
+	bsr	update_scrolling
+	
     bsr update_player
     
     IFND    NO_ENEMIES
@@ -2645,7 +2648,69 @@ start_music_countdown
     dc.w    0
 
 
+draw_scrolling_tiles
+	move.w	scroll_shift(pc),d0
+	lsl.w	#4,d0
+	move.w	d0,bplcon1+_custom
+	tst.b	draw_tile_column_message
+	beq.b	.no_new_tiles
+	clr.b	draw_tile_column_message
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
+	add.w	scroll_offset(pc),d0
+	move.l	map_pointer(pc),a6
+	; tiles are 8 pixels wide. shift is 0-16 we have to
+	; issue 2 tile columns at a time
+	bsr	draw_tiles
+	addq.w	#1,d0
+	bsr	draw_tiles
+	move.l	a6,map_pointer
+	; update screen pointer for playfield 2
+
+    moveq #NB_PLANES-1,d4
+    lea	bitplanes,a0              ; copperlist address
+    lea scroll_data,a1
+	add.w	scroll_offset(pc),a1
+	move.l	a1,d2
+    move.w #bplpt,d3        ; first register in d3
+
+		; 8 bytes per plane:32 + end + bplcontrol
+.mkcl:
+	addq.w	#8,a0
+	addq.w	#4,d3
 	
+    move.w d3,(a0)+           ; BPLxPTH
+    addq.w #2,d3              ; next register
+    swap d2
+    move.w d2,(a0)+           ; 
+    move.w d3,(a0)+           ; BPLxPTL
+    addq.w #2,d3              ; next register
+    swap d2
+    move.w d2,(a0)+           ; 
+    add.l #SCROLL_PLANE_SIZE,d2       ; next plane
+    dbf d4,.mkcl
+
+.no_new_tiles	
+	rts
+	
+	
+update_scrolling
+	move.w	scroll_shift(pc),d0
+	
+	subq.w	#1,d0
+	bne.b	.no_next_tile
+	move.w	#15,d0
+	st.b	draw_tile_column_message
+	addq.w	#2,scroll_offset
+	cmp.w	#40,scroll_offset
+	bne.b	.no_next_tile
+	blitz
+.no_next_tile
+	move.w	d0,scroll_shift
+	rts
+;	clr.w	scroll_shift
+;	clr.l	scroll_offset
+
+		
 ; hacked quick tile collision detection
 ; trashes a lot of registers but is probably
 ; pretty fast specially when 7 enemies are around
@@ -4212,6 +4277,8 @@ current_palette
 
 map_pointer
 	dc.l	0
+scroll_offset
+	dc.l	0
 scroll_shift
 	dc.w	0
 playfield_palette_index
@@ -4221,10 +4288,9 @@ playfield_palette_timer
 fuel:
 	dc.w	0
 	
-scroll_offset
-	dc.l	0
 	
-
+draw_tile_column_message
+	dc.b	0
 nb_lives:
     dc.b    0
 level_completed_flag
@@ -4393,7 +4459,7 @@ player_one_string_clear
 ground_table:
 	REPT	28
 	dc.w	0
-	dc.w	1,200-24,160
+	dc.w	1,200-24-16,160
 	ENDR
 
     MUL_TABLE   40
