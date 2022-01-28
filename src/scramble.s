@@ -159,6 +159,7 @@ NB_PLANES   = 3
 
 X_MAX=240
 Y_MAX=228
+X_SHIP_MIN=16	; min so we can see it fully
 X_SHIP_MAX=160  ; probably not that value
 Y_SHIP_MIN=24
 Y_SHIP_MAX=Y_MAX-16
@@ -403,7 +404,7 @@ Start:
 	
 	; dual playfield
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
-    clr.w bplcon2(a5)                     ; no priority (sprites behind)
+    ;;clr.w bplcon2(a5)                     ; no priority (sprites behind)
     move.w #0,bpl1mod(a5)                ; modulo de tous les plans = 40
     move.w #0,bpl2mod(a5)
 
@@ -420,6 +421,8 @@ intro:
     
     bsr clear_screen
     
+	bsr	init_scroll_mask_sprite
+	
 	bsr	init_stars
 	
     bsr draw_score
@@ -853,9 +856,22 @@ draw_current_score:
     move.w  #$FFF,d4
     bra write_color_decimal_number
     
-
+init_scroll_mask_sprite
+	lea	scroll_mask_sprite,a1
+	move.w	#X_MAX-16,d0
+	move.w	#100,d1	; doesn't matter
+	bsr		store_sprite_pos
+	move.w	d0,(2,a1)
+	swap	d0
+	move.w	d0,(6,a1)
+	
+	
+	rts
+	
+	
 stars_palette_size = (end_stars_palette-stars_palette)
 NB_STAR_LINES = 53
+star_copperlist_size = (end_stars_sprites_copperlist-stars_sprites_copperlist)/NB_STAR_LINES
 
 init_stars
 	lea	stars_sprites_copperlist,a1
@@ -870,15 +886,15 @@ init_stars
 .rx
 	bsr		random
 	btst	#15,d0
-	beq.b	.skip_pos
+	beq.b	.skip_pos	; 50% chance of displaying a star
 	and.w	#$FF,d0
-	cmp.w	#X_MAX,d0
+	cmp.w	#X_MAX-X_SHIP_MIN,d0
 	bcc.b	.rx
-
+	add.w	#X_SHIP_MIN,d0
 	move.w	#100,d1	; doesn't matter
 	bsr		store_sprite_pos
 	; store color
-	move.w	(a2,d2.w),(6,a1)
+	move.w	(a2,d2.w),(10,a1)
 	addq.w	#2,d2
 	cmp.w	#stars_palette_size,d2
 	bne.b	.write_pos
@@ -886,11 +902,11 @@ init_stars
 .write_pos
 
 	; D0 is the sprite pos/control word
-	move.w	d0,18-8(a1)
+	move.w	d0,18-4(a1)
 	swap	d0
-	move.w	d0,22-8(a1)
+	move.w	d0,22-4(a1)
 
-	add.w	#44-8,a1
+	add.w	#star_copperlist_size,a1
 	dbf		d7,.loop
 	rts
 .skip_pos
@@ -948,7 +964,7 @@ init_player:
     lea player(pc),a0
 
     
-    move.w  #8,xpos(a0)
+    move.w  #8+X_PLAYER_MIN,xpos(a0)
 	move.w	#60,ypos(a0)
     
 	
@@ -1274,7 +1290,7 @@ draw_tiles:
 	ENDR
 	dbf	d3,.fill
 .ft
-	
+
 .out
 	movem.l	(a7)+,d0-d4/A0-a3
 	rts
@@ -2647,7 +2663,9 @@ update_all
 start_music_countdown
     dc.w    0
 
-
+copy_tiles
+	rts
+	
 draw_scrolling_tiles
 	move.w	scroll_shift(pc),d0
 	lsl.w	#4,d0
@@ -2664,6 +2682,16 @@ draw_scrolling_tiles
 	addq.w	#1,d0
 	bsr	draw_tiles
 	move.l	a6,map_pointer
+	
+	; now we have to copy what we just created so when we
+	; reach hard right with the tiles we just have to reset
+	; the bitplane pointers at the start and the illusion of
+	; continuity is here
+	tst.w	scroll_offset
+	beq.b	.no_copy
+	bsr	copy_tiles
+.no_copy
+	
 	; update screen pointer for playfield 2
 
     moveq #NB_PLANES-1,d4
@@ -3151,16 +3179,16 @@ update_player
 .out
 	move.l	d0,previous_joy_input
 .no_move
-	tst.w	d2
-	bmi.b	.x_invalid
+	cmp.w	#X_SHIP_MIN,d2
+	bcs.b	.x_invalid
 	cmp.w	#X_SHIP_MAX,d2
 	bcc.b	.x_invalid
     ; TODO: add to x when scrolling
 
     move.w  d2,xpos(a4)
 .x_invalid
-	tst.w	d3
-	bmi.b	.y_invalid
+	cmp.w	#Y_SHIP_MIN,d3
+	bpl.b	.y_invalid
 	cmp.w	#Y_SHIP_MAX,d3
 	bcc.b	.y_invalid
 
@@ -3279,7 +3307,7 @@ draw_player:
 	move.w	frame(a2),d0
 	move.l	(a0,d0.w),a0
 .shipblit
-    move.w  xpos(a2),d3    
+    move.w  xpos(a2),d3
     move.w  ypos(a2),d4
 
     lea	screen_data,a1
@@ -4630,6 +4658,8 @@ bitplanes:
 	dc.w	bplpt+REPTN*2,0
 	ENDR
 
+STAR_SPRITE_INDEX = 7
+BLANKER_SPRITE_INDEX = 5
 
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
@@ -4643,7 +4673,7 @@ colors:
 dyn_color_reset:
 	dc.w	$1c0     ; green or gray
 end_color_copper:
-   dc.w  diwstrt,$3081            ;  DIWSTRT
+   dc.w  diwstrt,$3091            ;  DIWSTRT
    dc.w  diwstop,$28c1            ;  DIWSTOP
    ; we don't need to set it here
    ;dc.w  bplcon1,$0000            ;  BPLCON1 := 0x0000
@@ -4679,24 +4709,35 @@ sprites:
     dc.w    sprpt+28,0
     dc.w    sprpt+30,0
 	ENDC
+scroll_mask_sprite
+    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_ctl,0
+    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_pos,0
+    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_dataa,-1
+    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_dataB,0
+	dc.w	color+(BLANKER_SPRITE_INDEX/2)*8+34,$0	; black color
+	
 stars_sprites_copperlist:
 	REPT	NB_STAR_LINES
 	dc.b	$2C+REPTN*4+2
 	dc.b	1
 	dc.w	$FFFE
+	dc.w	bplcon2,$0
     ; we use sprite #7 (last) for the stars, multiplexing it
-	dc.w	color+58,$F00	; 4
-    dc.w    spr+sd_SIZEOF*7+sd_ctl,0 ; 16
-    dc.w    spr+sd_SIZEOF*7+sd_pos,0 ; 20
+	dc.w	color+(STAR_SPRITE_INDEX/2)*8+34,$F00	; 4
+    dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_ctl,0 ; 16
+    dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_pos,0 ; 20
 	; sprite pattern TEMP trash
-    dc.w    spr+sd_SIZEOF*7+sd_dataa,$8000	; 24
-    dc.w    spr+sd_SIZEOF*7+sd_dataB,$0000	; 28
-	dc.b	$2C+REPTN*4+3	; 32
+    dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataa,$8000	; 24
+    dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataB,$0000	; 28
+	;dc.w	$0080,$FFFE
+	dc.w	bplcon2,$20
+ 	dc.b	$2C+REPTN*4+3	; 32
 	dc.b	1
 	dc.w	$FFFE
     dc.w    spr+sd_SIZEOF*7+sd_dataa,0	; 36
     dc.w    spr+sd_SIZEOF*7+sd_dataB,0	; 40	
 	ENDR
+end_stars_sprites_copperlist
 	;;dc.b	$2C+(NB_STAR_LINES-1)*4+2,1
     dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
 
