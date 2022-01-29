@@ -90,10 +90,10 @@ MODE_KILL = 1<<2
 ; ---------------debug/adjustable variables
 
 ; uncomment to mark scroll columns with letters	
-SCROLL_DEBUG
+;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -1159,7 +1159,9 @@ PLAYER_ONE_Y = 102-14
 .playing
 	; main game draw
     bsr draw_player
+	IFD	SCROLL_DEBUG
 	bsr	draw_scroll_debug
+	ENDC
 	bsr	draw_score
 	bsr	draw_scrolling_tiles
 	
@@ -1541,32 +1543,7 @@ draw_intro_screen
     cmp.b   #1,d0
     bne.b   .no_part1
 
-    ; part 1: cattle drawing path in intro maze
-    lea enemies+Enemy_SIZEOF(pc),a0
-    
-    move.w  xpos(a0),d0
-    addq.w  #1,d0       ; compensate
-
-    move.w  ypos(a0),d1
-    add.w  #INTRO_Y_SHIFT+5,d1   ; compensate + add offset so logic coords match intro maze
-    ; center => top left
-    bsr store_sprite_pos
-
-    move.l  frame_table(a0),a1
-    move.w  frame(a0),d2
-    lsr.w   #2,d2   ; 8 divide to get 0,1
-    bclr    #0,d2   ; even
-    add.w   d2,d2       ; times 2
-
-    ; get proper frame from proper frame set
-    move.l  (a1,d2.w),a1
-
-    move.l  d0,(a1)     ; store control word
-    move.l  a1,d2    
-    move.l  copperlist_address(a0),a1
-    move.w  d2,(6,a1)
-    swap    d2
-    move.w  d2,(2,a1)  
+	nop
     
     ; paint is done in the update part
 	; the draw part misses bits because it's updated at 50 Hz
@@ -2702,6 +2679,7 @@ start_music_countdown
     dc.w    0
 
 copy_tiles
+	rts
 	; source offset
 	move.w	scroll_offset(pc),d1
 	move.w	#NB_BYTES_PER_LINE-2,d0
