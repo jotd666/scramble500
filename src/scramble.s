@@ -89,6 +89,9 @@ MODE_KILL = 1<<2
 
 ; ---------------debug/adjustable variables
 
+; uncomment to mark scroll columns with letters	
+SCROLL_DEBUG
+
 ; if set skips intro, game starts immediately
 DIRECT_GAME_START
 
@@ -98,7 +101,7 @@ DIRECT_GAME_START
 ;HIGHSCORES_TEST
 
 ;START_NB_LIVES = 1
-;START_SCORE = 1000/10
+;START_SCORE = 525670/10
 ;START_LEVEL = 2
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -134,7 +137,8 @@ START_NB_LIVES = 3+1
 	IFND	START_LEVEL
 START_LEVEL = 1
 	ENDC
-	
+
+
 NB_RECORDED_MOVES = 100
 
 ; --------------- end debug/adjustable variables
@@ -144,6 +148,7 @@ NB_TICKS_PER_SEC = 50
 ; game logic ticks
 ORIGINAL_TICKS_PER_SEC = 60
 
+WHITE_COLOR = $CCD
 
 NB_BYTES_PER_LINE = 40
 NB_BYTES_PER_PLAYFIELD_LINE = 28
@@ -421,7 +426,7 @@ intro:
     
     bsr clear_screen
     
-	bsr	init_scroll_mask_sprite
+	;bsr	init_scroll_mask_sprite
 	
 	bsr	init_stars
 	
@@ -485,6 +490,7 @@ intro:
     
     bsr init_new_play
 
+
 .new_level  
     bsr clear_screen
     bsr draw_score    
@@ -522,8 +528,10 @@ intro:
 	bsr	draw_ground	
     bsr draw_lives
     bsr draw_fuel
+	IFND	SCROLL_DEBUG
 	bsr	draw_level_map
 	bsr	draw_current_level
+	ENDC
     move.w  #STATE_PLAYING,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
 .mainloop
@@ -802,71 +810,59 @@ clear_scores
 ; draw score with titles and extra 0
 draw_score:
     lea p1_string(pc),a0
-    move.w  #232,d0
-    move.w  #16,d1
-    move.w  #$FF,d2
+    move.w  #24,d0
+    move.w  #Y_MAX-8,d1
+    move.w  #WHITE_COLOR,d2
     bsr write_color_string
-    lea score_string(pc),a0
-    move.w  #$FF0,d2
-    move.w  #232,d0
-    add.w  #8,d1
-    bsr write_color_string
-    
-    move.w  #$FF,d2
+
     lea high_score_string(pc),a0
-    move.w  #232,d0
-    move.w  #48,d1
+    move.w  #120,d0
     bsr write_color_string
-    
-    ; extra 0
-    move.w  #$FFF,d2
+	
+	move.w	#$EE0,d2
     lea score_string(pc),a0
-    move.w  #232,d0
-    add.w  #8,d1
+    move.w  #48,d0
+    bsr write_color_string
+
+    ; extra 0
+    lea score_string(pc),a0
+    move.w  #128+24,d0
     bsr write_color_string
 
     move.l  score(pc),d2
     bsr     draw_current_score
-    
+
+
     move.l  high_score(pc),d2
     bsr     draw_high_score
+    
+	rts
+    
 
-    lea level_string(pc),a0
-    move.w  #232,d0
-    move.w  #48+24,d1
-    move.w  #$FF,d2
-    bsr write_color_string
 
-    moveq.l #1,d2
-    add.w  level_number(pc),d2
-    move.w  #232+48,d0
-    move.w  #48+24+8,d1
-    move.w  #3,d3
-    move.w  #$FFF,d4
-    bra write_color_decimal_number
 
     rts
     
 ; < D2 score
 ; trashes D0-D3
 draw_current_score:
-    move.w  #232+16,d0
-    move.w  #24,d1
+    move.w  #56,d0
+    move.w  #Y_MAX-8,d1
     move.w  #6,d3
-    move.w  #$FFF,d4
+	move.w	#$EE0,d4
     bra write_color_decimal_number
     
-init_scroll_mask_sprite
-	lea	scroll_mask_sprite,a1
-	move.w	#X_MAX-16,d0
-	move.w	#100,d1	; doesn't matter
-	bsr		store_sprite_pos
-	move.w	d0,(2,a1)
-	swap	d0
-	move.w	d0,(6,a1)
-	
-	
-	rts
+;init_scroll_mask_sprite
+;	lea	scroll_mask_sprite,a1
+;	move.w	#X_MAX-16,d0
+;	move.w	#100,d1	; doesn't matter
+;	bsr		store_sprite_pos
+;	move.w	d0,(2,a1)
+;	swap	d0
+;	move.w	d0,(6,a1)
+;	
+;	
+;	rts
 	
 	
 stars_palette_size = (end_stars_palette-stars_palette)
@@ -894,7 +890,7 @@ init_stars
 	move.w	#100,d1	; doesn't matter
 	bsr		store_sprite_pos
 	; store color
-	move.w	(a2,d2.w),(10,a1)
+	move.w	(a2,d2.w),(14-8,a1)		; change offset if struct changes
 	addq.w	#2,d2
 	cmp.w	#stars_palette_size,d2
 	bne.b	.write_pos
@@ -902,9 +898,9 @@ init_stars
 .write_pos
 
 	; D0 is the sprite pos/control word
-	move.w	d0,18-4(a1)
+	move.w	d0,18-8(a1)		; change offset if struct changes
 	swap	d0
-	move.w	d0,22-4(a1)
+	move.w	d0,22-8(a1)		; change offset if struct changes
 
 	add.w	#star_copperlist_size,a1
 	dbf		d7,.loop
@@ -964,7 +960,7 @@ init_player:
     lea player(pc),a0
 
     
-    move.w  #8+X_PLAYER_MIN,xpos(a0)
+    move.w  #8+X_SHIP_MIN,xpos(a0)
 	move.w	#60,ypos(a0)
     
 	
@@ -1163,9 +1159,9 @@ PLAYER_ONE_Y = 102-14
 .playing
 	; main game draw
     bsr draw_player
-
+	bsr	draw_scroll_debug
+	bsr	draw_score
 	bsr	draw_scrolling_tiles
-
 	
 .after_draw
         
@@ -1230,24 +1226,23 @@ draw_tiles:
 	
 	lea		tiles,a4
 	move.w	(a6)+,d1	; y start
-	add.w	#36,d1		; offset
+	add.w	#24,d1		; offset
 	move.w	d1,d3	; save Y
 	lsr.w	#3,d3
+	beq.b	.no_clear
 	subq.w	#1,d3
 	; clear the space above ground
 	move.l	a1,a2
 	lea		(SCROLL_PLANE_SIZE,a1),a3
 .clear
 	REPT	8
-	clr.b	(1,a3)
-	clr.b	(1,a2)
 	clr.b	(a3)
 	clr.b	(a2)
 	add.w	d4,a3
 	add.w	d4,a2
 	ENDR
 	dbf	d3,.clear
-	
+.no_clear
 	move.w	d1,d3	; save Y
 	
 	lea		mul40_table(pc),a2
@@ -1278,13 +1273,13 @@ draw_tiles:
 	; empty
 	neg.w	d3
 	add.w	#Y_MAX-8,d3
+	bmi.b	.ft
 	lsr.w	#3,d3
+	beq.b	.ft
 .fill
 	REPT	8
 	st.b	(a3)
 	clr.b	(a2)
-	st.b	(1,a3)
-	clr.b	(1,a2)
 	add.w	d4,a3
 	add.w	d4,a2
 	ENDR
@@ -1304,10 +1299,10 @@ blit_tile
 	
 ; < D2: highscore
 draw_high_score
-    move.w  #232+16,d0
-    move.w  #24+32,d1
+    move.w  #120+40,d0
+    move.w  #Y_MAX-8,d1
     move.w  #6,d3
-    move.w  #$FFF,d4    
+    move.w  #$0ee0,d4    
     bra write_color_decimal_number
 
 
@@ -1333,10 +1328,6 @@ add_to_score:
     
     move.w  #MSG_SHOW,extra_life_message
     addq.b   #1,nb_lives
-	move.l	a0,d1	; save A0
-    lea     extra_life_sound,a0
-    bsr play_fx
-	move.l	d1,a0	; restore A0
 .below
     rts
     
@@ -2146,11 +2137,60 @@ draw_ground:
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
-	dbf	d7,.tileloop	
+	dbf	d7,.tileloop
+	rts
+	
+	IFD	SCROLL_DEBUG
+; what: writes an decimal number with a given color
+; args:
+; < D0: X (multiple of 8)
+; < D1: Y
+; < D2: number value
+; < D3: number of padding zeroes
+; < D4: RGB4 color
+; > D0: number of characters written
 
+draw_scroll_debug
+	lea	.scrollpos(pc),a0
+	move.w	#0,d1
+	move.w	#16,d0
+	move.w	#WHITE_COLOR,d2
+	bsr		write_color_string
+	move.w	scroll_offset(pc),d2
+	ext.l	d2
+	move.W	#3,d3
+	move.w	#0,d1
+	move.w	#96,d0
+	move.w	#WHITE_COLOR,d4
+	bsr		write_color_decimal_number
+	
+	; debug
+	lea	scroll_data,a1
+	moveq.w	#0,d2
+.ws
+	lea	.letter(pc),a0
+	move.b	#'A',(a0)
+	clr.w	d0
+	move.w	#8,d1
+.loop
+	move.l	d0,-(a7)
+	bsr	write_string
+	move.l	(a7)+,d0
+	addq.w	#8,d0
+	addq.b	#1,.letter
+	cmp.w	#27*8,d0
+	bne.b	.loop
+	add.w	#26+SCROLL_PLANE_SIZE,a1
+	dbf		d2,.ws
     rts    
+.scrollpos
+	dc.b	"SCROLLPOS",0
+.letter:
+	dc.b	0,0
+	even
 
-
+	ENDC
+	
 init_sound
     ; init phx ptplayer, needs a6 as custom, a0 as vbr (which is zero)
     sub.l   a0,a0
@@ -2605,16 +2645,14 @@ update_all
     tst.l   state_timer
     bne.b   .no_first_tick
     st.b   .intro_music_played
-    moveq.w   #1,d0
-    tst.w  level_number
-    bne.b   .no_delay
+	
+
     ; first level: play start music
     clr.b   .intro_music_played
     
+    lea     start_music_sound,a0
+    bsr play_fx
 
-    move.w  #ORIGINAL_TICKS_PER_SEC*5,d0
-.no_delay
-    move.w  d0,start_music_countdown
 .no_first_tick
     ; for demo mode
     addq.w  #1,record_input_clock
@@ -2664,6 +2702,33 @@ start_music_countdown
     dc.w    0
 
 copy_tiles
+	; source offset
+	move.w	scroll_offset(pc),d1
+	move.w	#NB_BYTES_PER_LINE-2,d0
+	add.w	d1,d0
+	
+	lea		scroll_data+NB_BYTES_PER_LINE*16,a2	; base
+	lea		(a2,d0.w),a0	; source
+	lea		(a2,d1.w),a1	; dest
+	; copy the whole column, aligned so can use word copy
+    moveq #NB_PLANES-1,d4
+	move.w	#NB_BYTES_PER_LINE,d5
+.ploop
+	move.l	a0,a3
+	move.l	a1,a4
+	move.w	#(Y_MAX-16)/8-1,d0
+.copy
+	REPT	8
+	move.w	(a3),(a4)
+	add.w	d5,a3
+	add.w	d5,a4
+	ENDR
+
+	
+	dbf	d0,.copy
+	add.w	#SCROLL_PLANE_SIZE,a0
+	add.w	#SCROLL_PLANE_SIZE,a1
+	dbf		d4,.ploop
 	rts
 	
 draw_scrolling_tiles
@@ -2729,14 +2794,14 @@ update_scrolling
 	move.w	#15,d0
 	st.b	draw_tile_column_message
 	addq.w	#2,scroll_offset
-	cmp.w	#40,scroll_offset
+	cmp.w	#NB_BYTES_PER_LINE,scroll_offset
 	bne.b	.no_next_tile
-	blitz
+	; reset scroll
+	clr.w	scroll_offset
 .no_next_tile
 	move.w	d0,scroll_shift
 	rts
-;	clr.w	scroll_shift
-;	clr.l	scroll_offset
+
 
 		
 ; hacked quick tile collision detection
@@ -3188,7 +3253,7 @@ update_player
     move.w  d2,xpos(a4)
 .x_invalid
 	cmp.w	#Y_SHIP_MIN,d3
-	bpl.b	.y_invalid
+	bcs.b	.y_invalid
 	cmp.w	#Y_SHIP_MAX,d3
 	bcc.b	.y_invalid
 
@@ -3827,7 +3892,16 @@ write_decimal_number
 .write_num
     bsr convert_number
     bra write_string
-    
+ 
+; what: writes an decimal number with a given color
+; args:
+; < D0: X (multiple of 8)
+; < D1: Y
+; < D2: number value
+; < D3: number of padding zeroes
+; < D4: RGB4 color
+; > D0: number of characters written
+ 
 write_color_decimal_number
     movem.l A0-A1/D2-d6,-(a7)
     lea     write_color_string(pc),a1
@@ -3840,14 +3914,6 @@ write_blanked_color_decimal_number
     bsr.b     write_color_decimal_number_internal
     movem.l (a7)+,A0-A1/D2-d6
     rts
-; what: writes an decimal number with a given color
-; args:
-; < D0: X (multiple of 8)
-; < D1: Y
-; < D2: number value
-; < D3: number of padding zeroes
-; < D4: RGB4 color
-; > D0: number of characters written
     
 write_color_decimal_number_internal
     cmp.w   #18,d3
@@ -4467,13 +4533,11 @@ space
     ds.b    8,0
     
 high_score_string
-    dc.b    " HIGH SCORE",0
+    dc.b    "HIGH",0
 p1_string
-    dc.b    "     1UP",0
-level_string
-    dc.b    "   LEVEL",0
+    dc.b    "1UP",0
 score_string
-    dc.b    "       00",0
+    dc.b    "      00",0
 game_over_string
     dc.b    "GAME##OVER",0
 player_one_string
@@ -4574,8 +4638,11 @@ SOUND_ENTRY:MACRO
     ENDM
     
     ; radix, ,channel (0-3)
-    SOUND_ENTRY extra_life,2,SOUNDFREQ,56
-    SOUND_ENTRY player_killed,2,SOUNDFREQ,40
+    SOUND_ENTRY low_fuel,2,SOUNDFREQ,42
+    SOUND_ENTRY player_killed,2,SOUNDFREQ,53
+    SOUND_ENTRY rocket_explodes,2,SOUNDFREQ,44
+    SOUND_ENTRY bomb_falling,2,SOUNDFREQ,36
+    SOUND_ENTRY start_music,2,SOUNDFREQ,40
 
 
 tiles:
@@ -4674,11 +4741,11 @@ dyn_color_reset:
 	dc.w	$1c0     ; green or gray
 end_color_copper:
    dc.w  diwstrt,$3091            ;  DIWSTRT
-   dc.w  diwstop,$28c1            ;  DIWSTOP
+   dc.w  diwstop,$2861            ;  DIWSTOP
    ; we don't need to set it here
    ;dc.w  bplcon1,$0000            ;  BPLCON1 := 0x0000
    ; proper sprite priority: below bitplanes for the stars effect
-   ;dc.w  bplcon2,$0000            ;  BPLCON2
+   dc.w  bplcon2,$0000            ;  BPLCON2
    dc.w  ddfstrt,$0038            ;  DDFSTRT := 0x0038
    dc.w  ddfstop,$00d0            ;  DDFSTOP := 0x00d0
       
@@ -4709,19 +4776,18 @@ sprites:
     dc.w    sprpt+28,0
     dc.w    sprpt+30,0
 	ENDC
-scroll_mask_sprite
-    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_ctl,0
-    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_pos,0
-    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_dataa,-1
-    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_dataB,0
-	dc.w	color+(BLANKER_SPRITE_INDEX/2)*8+34,$0	; black color
+;scroll_mask_sprite
+;    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_ctl,0
+;    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_pos,0
+;    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_dataa,-1
+;    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_dataB,0
+;	dc.w	color+(BLANKER_SPRITE_INDEX/2)*8+34,$0	; black color
 	
 stars_sprites_copperlist:
 	REPT	NB_STAR_LINES
 	dc.b	$2C+REPTN*4+2
 	dc.b	1
 	dc.w	$FFFE
-	dc.w	bplcon2,$0
     ; we use sprite #7 (last) for the stars, multiplexing it
 	dc.w	color+(STAR_SPRITE_INDEX/2)*8+34,$F00	; 4
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_ctl,0 ; 16
@@ -4730,7 +4796,6 @@ stars_sprites_copperlist:
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataa,$8000	; 24
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataB,$0000	; 28
 	;dc.w	$0080,$FFFE
-	dc.w	bplcon2,$20
  	dc.b	$2C+REPTN*4+3	; 32
 	dc.b	1
 	dc.w	$FFFE
@@ -4793,17 +4858,31 @@ purple_level_mark
 
 red_level_mark
 	incbin	"red_level_mark.bin"
-	
-extra_life_raw
-    incbin  "extra_life.raw"
+
+low_fuel_raw
+    incbin  "low_fuel.raw"
     even
-extra_life_raw_end
+low_fuel_raw_end
 
 player_killed_raw
     incbin  "player_killed.raw"
     even
 player_killed_raw_end
 
+rocket_explodes_raw
+    incbin  "rocket_explodes.raw"
+    even
+rocket_explodes_raw_end
+
+bomb_falling_raw
+    incbin  "bomb_falling.raw"
+    even
+bomb_falling_raw_end
+
+start_music_raw
+    incbin  "start_music.raw"
+    even
+start_music_raw_end
     even
 
 star_sprite:
