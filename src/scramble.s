@@ -710,36 +710,41 @@ clear_screen
 
 
 clear_playfield_planes
-    lea scroll_data,a1
+    lea screen_data,a1
 	move.w	#NB_PLANES-1,d0
 .loop
     bsr clear_playfield_plane
-    add.w   #SCROLL_PLANE_SIZE,a1
+    add.w   #SCREEN_PLANE_SIZE,a1
 	dbf		d0,.loop
 	
-    lea screen_data,a1
-	move.w	#NB_PLANES-2,d0
+    lea scroll_data,a1
+	move.w	#NB_PLANES-1,d0
 .loop2
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_scroll_plane
+    add.w   #SCROLL_PLANE_SIZE,a1
 	dbf		d0,.loop2
-	; continues to plane clear routine
-    
+    rts
+	
 ; < A1: plane start
 clear_playfield_plane
-    movem.l d0-d1/a0-a1,-(a7)
-    move.w #NB_LINES-1,d0
-.cp
-    move.w  #NB_BYTES_PER_PLAYFIELD_LINE/4-1,d1
-    move.l  a1,a0
+    movem.l d0/a1,-(a7)
+    move.w #SCREEN_PLANE_SIZE/4-1,d0
 .cl
-    clr.l   (a0)+
-    dbf d1,.cl
-    clr.w   (a0)
-    add.w   #NB_BYTES_PER_LINE,a1
-    dbf d0,.cp
-    movem.l (a7)+,d0-d1/a0-a1
+    clr.l   (a1)+
+    dbf d0,.cl
+    movem.l (a7)+,d0/a1
     rts
+
+; < A1: plane start
+clear_scroll_plane
+    movem.l d0/a1,-(a7)
+    move.w #SCROLL_PLANE_SIZE/4-1,d0
+.cl
+    clr.l   (a1)+
+    dbf d0,.cl
+    movem.l (a7)+,d0/a1
+    rts
+
 
     
 init_new_play:
@@ -1513,7 +1518,7 @@ draw_intro_screen
     move.w  (a1)+,d1
     move.b  (a1)+,(a0)
     clr.b   (a1)    ; ack
-    move.w  #$FFF,d2
+    move.w  #WHITE_COLOR,d2
     bsr write_color_string
 .nothing_to_print
     rts
