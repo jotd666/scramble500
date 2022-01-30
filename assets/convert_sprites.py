@@ -132,7 +132,7 @@ def process_maps():
             f.write("\tdc.w\t-1\n") # end of level
         f.write("\tdc.w\t-2\n") # end of levels
         with open(os.path.join(source_dir,"blocks.s"),"w") as f:
-            f.write("; each block is 32+32 bytes (because blitter shifting adds 16 bits/plane)\n")
+            f.write("; each block is 16 bytes (2 planes, 8 bytes per plane)\n")
             for i in range(0,tile_id,16):
                 f.write("\tincbin\ttile_{:02d}.bin\n".format(i))
 
@@ -307,13 +307,13 @@ def process_fonts(dump=False):
             namei = "{}_{}".format(name,i) if nb_frames != 1 else name
             bitplanelib.palette_image2raw(img,"{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,palette_precision_mask=0xF0)
 
-#process_maps()
+process_maps()
 
 
-#process_tiles("tiles_gray.json")
+process_tiles("tiles_gray.json")
 # 8 colors of ship & objects playfield
 game_palette = process_tiles("tiles_color.json")
-#bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
+bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
 
 
-#process_fonts()
+process_fonts()

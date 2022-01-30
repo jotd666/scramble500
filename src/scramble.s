@@ -79,7 +79,7 @@ MODE_KILL = 1<<2
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -88,7 +88,7 @@ MODE_KILL = 1<<2
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 2
+START_LEVEL = 2
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -990,6 +990,7 @@ init_player:
 
     clr.w   record_input_clock                      ; start of time
 
+	clr.b	next_level_flag
     move.w  #-1,player_killed_timer
  
 
@@ -1111,6 +1112,10 @@ PLAYER_ONE_Y = 102-14
     
     bra.b   .draw_complete
 .playing
+	tst.b	next_level_flag
+	beq.b	.same_level
+	bsr		draw_current_level
+.same_level
 	; main game draw
     bsr draw_player
 	IFD	SCROLL_DEBUG
@@ -1162,56 +1167,40 @@ stop_sounds
 
 
 ; < A6: map pointer
-; < D0: x offset in bytes
+; < D0: x/y offset in bytes
 ; > A6: new map pointer
 draw_tiles:
-	movem.l	d0-d4/A0-a3,-(a7)
-	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d4	; we'll need this value A LOT
-	; upper part
-	move.w	(a6)+,d2
-	beq.b	.lower
-	bmi.b	.end
-	nop
-	blitz ; TODO LEVEL 2
-.lower
-	move.w	(a6)+,d2		; number of vertical tiles to draw
-	beq.b	.out	; not really possible, though
-	subq.w	#1,d2
-	lea		scroll_data,a1	; 2nd playfield
-	add.w	d0,a1		; add x offset
-	
+	movem.l	d0-d7/A0-a3,-(a7)
 	lea		tiles,a4
-	move.w	(a6)+,d1	; y start
-	add.w	#24,d1		; offset
-	move.w	d1,d3	; save Y
-	lsr.w	#3,d3
-	beq.b	.no_clear
-	subq.w	#1,d3
-	; clear the space above ground
-	move.l	a1,a2
-	lea		(SCROLL_PLANE_SIZE,a1),a3
-.clear
-	REPT	8
-	clr.b	(a3)
-	clr.b	(a2)
-	add.w	d4,a3
-	add.w	d4,a2
-	ENDR
-	dbf	d3,.clear
-.no_clear
-	move.w	d1,d3	; save Y
-	
-	lea		mulNB_BYTES_PER_SCROLL_SCREEN_LINE_table(pc),a2
-	add.w	d1,d1
-	add.w	(a2,d1.w),a1	; offset
+	move.w	d0,d5	; save X-offset for later on
+	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a1	; 2nd playfield
+	add.w	d5,a1		; add x offset
 
-.lowerloop:
+	move.w	#16,d6	; current y
+	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d4	; we'll need this value A LOT
+	move.w	(a6)+,d2	; number of vertical tiles to draw - upper part
+	beq.b	.lower
+	bmi.b	.advance_level	
+	; upper part
+	subq.w	#1,d2
+	move.w	(a6)+,d1	; y start	
+	add.w	d6,d1
+
+	move.l	a1,a2						; first dest plane
+	lea		(SCROLL_PLANE_SIZE,a1),a3	; second dest plane
+	
+	; fill upper part
+	move.w	d1,d7
+	bsr.b		.fill
+
+.upperloop:
 	move.w	(a6)+,d0	; tile id
+
 	lea		(a4,d0.w),a0	; graphics
 	; cpu copy
-	move.l	a1,a2
-	lea		(SCROLL_PLANE_SIZE,a1),a3
-.copy
+	move.l	a1,a2						; first dest plane
+	lea		(SCROLL_PLANE_SIZE,a1),a3	; second dest plane
+
 	; copy both planes
 	REPT	8
 	move.b	(8,a0),(a3)
@@ -1221,33 +1210,86 @@ draw_tiles:
 	ENDR
 
 	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
-	addq.w	#8,d3
+
+	addq.w	#8,d6	; advance y
+	dbf		d2,.upperloop	
+	; one tile drawn
+	; lower part
+.lower
+	move.w	(a6)+,d2		; number of vertical tiles to draw
+	beq.b	.out	; not really possible, though
+	subq.w	#1,d2
+	
+	move.w	(a6)+,d1	; y start
+	add.w	#24,d1		; add offset
+	; clear the space above ground
+	move.l	a1,a2
+	lea		(SCROLL_PLANE_SIZE,a1),a3
+.clear
+	cmp.w	d1,d6
+	beq.b	.no_clear	; reached
+	REPT	8
+	clr.b	(a3)
+	clr.b	(a2)
+	add.w	d4,a3
+	add.w	d4,a2
+	ENDR
+	addq.w	#8,d6
+	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
+	bra.b	.clear
+
+.no_clear
+	
+.lowerloop:
+	move.w	(a6)+,d0	; tile id
+	lea		(a4,d0.w),a0	; graphics
+	; cpu copy
+	move.l	a1,a2
+	lea		(SCROLL_PLANE_SIZE,a1),a3
+
+	; copy both planes
+	REPT	8
+	move.b	(8,a0),(a3)
+	move.b	(a0)+,(a2)
+	add.w	d4,a2
+	add.w	d4,a3
+	ENDR
+
+	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
+	addq.w	#8,d6
 	dbf		d2,.lowerloop
+	move.w	#Y_MAX,d7
+	bsr.b		.fill
+
+
+.out
+	movem.l	(a7)+,d0-d7/A0-a3
+	rts
+	
+; < D7: y max
+
+.fill
 	; now fill the rest with filler tile or nothing
 	move.w	filling_tile(pc),d0
 	bne.b	.ft
 	; empty
-	neg.w	d3
-	add.w	#Y_MAX-4,d3
-	bmi.b	.ft
-	lsr.w	#2,d3
-	beq.b	.ft
-.fill
-	REPT	4
+	cmp.w	d7,d6
+	bcc.b	.ft
+	REPT	8
 	st.b	(a3)
 	clr.b	(a2)
 	add.w	d4,a3
 	add.w	d4,a2
 	ENDR
-	dbf	d3,.fill
+	addq.w	#8,d6
+	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
+	bra.b	.fill
 .ft
-
-.out
-	movem.l	(a7)+,d0-d4/A0-a3
 	rts
 	
-.end
-	blitz
+.advance_level
+	addq.w	#1,level_number
+	st.b	next_level_flag
 	bra	.out
 	
 blit_tile
@@ -1918,7 +1960,8 @@ draw_current_level
 	lea		screen_data,a1
 	lea		purple_level_mark,a0
 	cmp.w	level_number(pc),d6
-	bne.b	.ploop
+	beq.b	.ploop
+	bcs.b	.ploop
 	lea		red_level_mark,a0
 .ploop
     movem.l d0-d6/a1-a4,-(a7)
@@ -2291,7 +2334,7 @@ level2_interrupt:
     beq.b   .no_playing
         
     cmp.b   #$50,d0
-    seq.b   level_completed_flag
+    seq.b   game_completed_flag
 
     cmp.b   #$51,d0
     bne.b   .no_invincible
@@ -2541,9 +2584,9 @@ update_all
     rts
     ; update
 .playing
-	tst.b	level_completed_flag
+	tst.b	game_completed_flag
 	beq.b	.no_completed
-	clr.b	level_completed_flag
+	clr.b	game_completed_flag
 
     bsr stop_sounds
 
@@ -4239,11 +4282,12 @@ draw_tile_column_message
 	dc.b	0
 nb_lives:
     dc.b    0
-level_completed_flag
+game_completed_flag
 	dc.b	0
 new_life_restart:
     dc.b    0
-
+next_level_flag:
+	dc.b	0
 music_playing:    
     dc.b    0
 pause_flag
