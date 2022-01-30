@@ -57,20 +57,6 @@ INTERRUPTS_ON_MASK = $E038
 	STRUCT      BaseCharacter1,Character_SIZEOF
     LABEL   Player_SIZEOF
     
-	STRUCTURE	Enemy,0
-	STRUCT      BaseCharacter2,Character_SIZEOF
-	STRUCT      palette,SpritePalette_SIZEOF
-    APTR     frame_table
-    APTR     copperlist_address
-    APTR     color_register
-    UWORD   speed_table_index
-    UWORD   score_frame
-	UWORD	respawn_delay
-    UWORD    mode_timer     ; number of 1/50th to stay in the current mode (thief only)
-    UWORD    mode           ; current mode
-    UWORD    previous_mode           ; previous mode
-    UWORD    score_display_timer
-	LABEL	 Enemy_SIZEOF
     
     ;Exec Library Base Offsets
 
@@ -152,13 +138,14 @@ WHITE_COLOR = $CCD
 
 NB_BYTES_PER_LINE = 40
 NB_BYTES_PER_PLAYFIELD_LINE = 28
+NB_BYTES_PER_SCROLL_SCREEN_LINE = NB_BYTES_PER_PLAYFIELD_LINE*2+6
 BOB_16X16_PLANE_SIZE = 64
 BOB_32X16_PLANE_SIZE = 96
 BOB_8X8_PLANE_SIZE = 16
 
 NB_LINES = 31*8
-SCREEN_PLANE_SIZE = 40*NB_LINES
-SCROLL_PLANE_SIZE = 80*NB_LINES
+SCREEN_PLANE_SIZE = NB_BYTES_PER_LINE*NB_LINES
+SCROLL_PLANE_SIZE = NB_BYTES_PER_SCROLL_SCREEN_LINE*NB_LINES
 NB_PLANES   = 3
 
 
@@ -411,11 +398,12 @@ Start:
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
     ;;clr.w bplcon2(a5)                     ; no priority (sprites behind)
     move.w #0,bpl1mod(a5)                ; modulo de tous les plans = 40
-    move.w #0,bpl2mod(a5)
 
 intro:
     lea _custom,a5
     clr.w bplcon1(a5)                     ; reset scrolling shift to 0
+    move.w #0,bpl2mod(a5)                ; modulo of 2nd playfield 0 
+	; (to be able to draw ships with a "classic" blit routine in the "SCORE" screen)
 
     move.w  #$7FFF,(intena,a5)
     move.w  #$7FFF,(intreq,a5)
@@ -524,6 +512,9 @@ intro:
 
     move.w  level_number(pc),d0
     btst    #0,d0
+
+	; set playfield modulo in scroll mode
+    move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE,bpl2mod(a5)
     
 	bsr	draw_ground	
     bsr draw_lives
@@ -964,8 +955,6 @@ init_player:
 	move.w	#60,ypos(a0)
     
 	
-
-    clr.w  speed_table_index(a0)
     move.w  #-1,h_speed(a0)
     clr.w   v_speed(a0)
     
@@ -1038,29 +1027,7 @@ draw_debug
     ;;
 
 	
-        IFEQ    1
-    add.w  #8,d1
-    lea .tx(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w xpos+enemies(pc),d2
-    move.w  #5,d3
-    bsr write_decimal_number
-    move.w  #DEBUG_X,d0
-    add.w  #8,d1
-    move.l  d0,d4
-    lea .ty(pc),a0
-    bsr write_string
-    lsl.w   #3,d0
-    add.w  #DEBUG_X,d0
-    clr.l   d2
-    move.w ypos+enemies(pc),d2
-    move.w  #3,d3
-    bsr write_decimal_number
-    move.l  d4,d0
-    ENDC
+  
     ;;
     ;;
 
@@ -1096,25 +1063,7 @@ draw_enemies:
     rts
 
 .draw_enemy
-    move.w  xpos(a0),d0
-    addq.w  #1,d0       ; compensate
-    move.w  ypos(a0),d1
-    addq.w  #3,d1   ; compensate
-    ; center => top left
-    bsr store_sprite_pos
 
-    ; we cannot have white color for score
-    ; that would trash the other enemy
-    ;;move.w  #$00ff,_custom+color+32+8+2
-
-    move.w  mode(a0),d3 ; normal/chase/fright/fall..
-    IFD     DEBUG_MODE
-    cmp.w   #MODE_LAST_ITEM,d3
-    bcs.b   .in_range
-    blitz
-    illegal
-.in_range
-    ENDC
 	rts
     
      
@@ -1212,7 +1161,7 @@ stop_sounds
 ; > A6: new map pointer
 draw_tiles:
 	movem.l	d0-d4/A0-a3,-(a7)
-	move.w	#NB_BYTES_PER_LINE,d4	; we'll need this value A LOT
+	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d4	; we'll need this value A LOT
 	; upper part
 	move.w	(a6)+,d2
 	beq.b	.lower
@@ -1247,7 +1196,7 @@ draw_tiles:
 .no_clear
 	move.w	d1,d3	; save Y
 	
-	lea		mul40_table(pc),a2
+	lea		mulNB_BYTES_PER_SCROLL_SCREEN_LINE_table(pc),a2
 	add.w	d1,d1
 	add.w	(a2,d1.w),a1	; offset
 
@@ -1266,7 +1215,7 @@ draw_tiles:
 	add.w	d4,a3
 	ENDR
 
-	add.w	#NB_BYTES_PER_LINE*8,a1
+	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
 	addq.w	#8,d3
 	dbf		d2,.lowerloop
 	; now fill the rest with filler tile or nothing
@@ -1274,12 +1223,12 @@ draw_tiles:
 	bne.b	.ft
 	; empty
 	neg.w	d3
-	add.w	#Y_MAX-8,d3
+	add.w	#Y_MAX-4,d3
 	bmi.b	.ft
-	lsr.w	#3,d3
+	lsr.w	#2,d3
 	beq.b	.ft
 .fill
-	REPT	8
+	REPT	4
 	st.b	(a3)
 	clr.b	(a2)
 	add.w	d4,a3
@@ -2141,30 +2090,11 @@ draw_scroll_debug
 	move.w	#WHITE_COLOR,d4
 	bsr		write_color_decimal_number
 	
-	; debug
-	lea	scroll_data,a1
-	moveq.w	#0,d2
-.ws
-	lea	.letter(pc),a0
-	move.b	#'A',(a0)
-	clr.w	d0
-	move.w	#8,d1
-.loop
-	move.l	d0,-(a7)
-	bsr	write_string
-	move.l	(a7)+,d0
-	addq.w	#8,d0
-	addq.b	#1,.letter
-	cmp.w	#27*8,d0
-	bne.b	.loop
-	add.w	#26+SCROLL_PLANE_SIZE,a1
-	dbf		d2,.ws
+
     rts    
 .scrollpos
 	dc.b	"SCROLLPOS",0
-.letter:
-	dc.b	0,0
-	even
+
 
 	ENDC
 	
@@ -2230,8 +2160,8 @@ exc10
 
 lockup
     move.l  (2,a7),d3
-    move.w  #$FFF,d2
-    clr.w   d0
+    move.w  #WHITE_COLOR,d2
+    move.w   #16,d0
     clr.w   d1
     bsr write_color_string
 
@@ -2679,18 +2609,18 @@ start_music_countdown
     dc.w    0
 
 copy_tiles
-	rts
+	
 	; source offset
 	move.w	scroll_offset(pc),d1
-	move.w	#NB_BYTES_PER_LINE-2,d0
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
 	add.w	d1,d0
 	
-	lea		scroll_data+NB_BYTES_PER_LINE*16,a2	; base
+	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a2	; base
 	lea		(a2,d0.w),a0	; source
-	lea		(a2,d1.w),a1	; dest
+	lea		(-2,a2,d1.w),a1	; dest
 	; copy the whole column, aligned so can use word copy
     moveq #NB_PLANES-1,d4
-	move.w	#NB_BYTES_PER_LINE,d5
+	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d5
 .ploop
 	move.l	a0,a3
 	move.l	a1,a4
@@ -2698,6 +2628,7 @@ copy_tiles
 .copy
 	REPT	8
 	move.w	(a3),(a4)
+	;;or.w	#$5555,(a4)
 	add.w	d5,a3
 	add.w	d5,a4
 	ENDR
@@ -2772,7 +2703,7 @@ update_scrolling
 	move.w	#15,d0
 	st.b	draw_tile_column_message
 	addq.w	#2,scroll_offset
-	cmp.w	#NB_BYTES_PER_LINE,scroll_offset
+	cmp.w	#NB_BYTES_PER_PLAYFIELD_LINE,scroll_offset
 	bne.b	.no_next_tile
 	; reset scroll
 	clr.w	scroll_offset
@@ -2795,7 +2726,7 @@ check_collisions
     lsr.l   d3,d0		; shift both X and Y
 	move.w	#$1FFF,d1	; pre-load mask value
 	and.w	d1,d0	; remove shifted X bits that propagated to Y LSW
-    lea enemies(pc),a4
+    ;;lea enemies(pc),a4
     ;;move.w  nb_enemies_but_thief(pc),d7    ; plus one
 .gloop
 	; this is probably much faster than shifting X & Y to compute tile
@@ -2805,7 +2736,7 @@ check_collisions
     cmp.l   d2,d0		; one comparison
     beq.b   .collision
 
-    add.w   #Enemy_SIZEOF,a4
+    ;;add.w   #Enemy_SIZEOF,a4
     dbf d7,.gloop
     rts
 .collision
@@ -2814,7 +2745,6 @@ check_collisions
     ; player is killed
     tst.b   invincible_cheat_flag
     bne.b   .nomatch
-    move.w  #MODE_KILL,mode(a4)
     move.w  #PLAYER_KILL_TIMER,player_killed_timer
     clr.w   enemy_kill_timer
     move.w  #KILL_FIRST_FRAME,enemy_kill_frame
@@ -2838,23 +2768,7 @@ update_intro_screen
     move.b  #1,intro_step
     st.b    intro_state_change
 
-    clr.l	d0
-    bsr init_enemies
-    
-    lea enemies+Enemy_SIZEOF(pc),a0
 
-	lea		.cattle_x_table(pc),a1
-	; pick a random start position
-	bsr		random
-	and.w	#3,d0
-	add.w	d0,d0
-	move.w	(a1,d0.w),d0
-    move.w  d0,xpos(a0)
-    move.w  #-8,ypos(a0)     ; this is the logical coordinate
-  
-    move.w  #DOWN,direction(a0)
-    move.l  #$FFFF0001,h_speed(a0)
-    
     bra.b   .cont
 .no_first 
     cmp.l   #ORIGINAL_TICKS_PER_SEC*9,d0
@@ -2915,48 +2829,10 @@ update_intro_screen
     cmp.b   #3,intro_step
     beq.b   .step3
     
-    cmp.l   #ORIGINAL_TICKS_PER_SEC,d0
-    bcs.b   .no_animate
-    cmp.l   #ORIGINAL_TICKS_PER_SEC*8,d0
-    bcc.b   .no_animate
-    
-    lea enemies+Enemy_SIZEOF(pc),a4
 
-	; paint here
-    move.w  xpos(a4),d0
-    move.w  ypos(a4),d1
-
-    lea screen_data,a1
-    add.w   #INTRO_Y_SHIFT+8,d1
-    ADD_XY_TO_A1    a2
-    lea (SCREEN_PLANE_SIZE,a1),a2
-    cmp.w   #LEFT,direction(a4)
-    beq.b   .skipleft
-    move.b  (a1),(a2)
-    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
-.skipleft
-    move.b  (1,a1),(1,a2)
-    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
-
-
-    move.w  ypos(a4),d0
-    bmi.b   .down   ; not in the maze yet
-	cmp.w	#4,d0
-	bcs.b	.down
-    cmp.w   #112,d0
-    beq.b   .out
-    cmp.w   #108,d0
-    bcc.b   .down   ; out of the maze
-    rts
 .no_animate
     rts
-.horiz
-    addq.w  #1,xpos(a4)
-    rts
-.down
-    bsr animate_enemy
-    addq.w  #1,ypos(a4)
-    rts
+
 .step2
     tst.w   high_score_position
     bmi.b   .out
@@ -3020,10 +2896,6 @@ update_intro_screen
     st.b    demo_mode
     rts
 
-; not all start positions work properly
-; but who cares? just omit the ones that fail
-.cattle_x_table:
-	dc.w	40,80,120,160
 .cct_countdown
     dc.w    0
 .cct_x:
@@ -3070,9 +2942,6 @@ animate_enemy
     and.w   #$F,d1
     move.w  d1,frame(a4)
     rts
-
-
-
 
     
 play_loop_fx
@@ -4392,12 +4261,13 @@ extra_life_awarded
 music_played
     dc.b    0
 
+    even
+
 filling_tile_table
 	dc.w	0,0,0,33*16,33*16,34*16
 
 filling_tile:
 	dc.w	0
-    even
 
 bonus_score_display_message:
     dc.w    0
@@ -4534,7 +4404,8 @@ ground_table:
 
     MUL_TABLE   40
     MUL_TABLE   28
-
+	MUL_TABLE	NB_BYTES_PER_SCROLL_SCREEN_LINE
+	
 square_table:
 	rept	256
 	dc.w	REPTN*REPTN
@@ -4648,9 +4519,7 @@ player:
     ds.b    Player_SIZEOF
     even
 
-enemies:
-    ds.b    Enemy_SIZEOF*7
-    even
+
 
 
     
@@ -4696,8 +4565,7 @@ record_input_table:
 
 ; main copper list
 coplist
-   dc.l  $01080000
-   dc.l  $010a0000
+
 bitplanes:
 	REPT	12
 	dc.w	bplpt+REPTN*2,0
@@ -4770,10 +4638,9 @@ stars_sprites_copperlist:
 	dc.w	color+(STAR_SPRITE_INDEX/2)*8+34,$F00	; 4
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_ctl,0 ; 16
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_pos,0 ; 20
-	; sprite pattern TEMP trash
+	; sprite pattern
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataa,$8000	; 24
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataB,$0000	; 28
-	;dc.w	$0080,$FFFE
  	dc.b	$2C+REPTN*4+3	; 32
 	dc.b	1
 	dc.w	$FFFE
@@ -4787,18 +4654,8 @@ end_stars_sprites_copperlist
    dc.w  $FFDF,$FFFE            ; PAL wait (256)
    dc.w  $2201,$FFFE            ; PAL extra wait (around 288)
    dc.w intreq,$8010            ; generate copper interrupt
-    dc.l    -2
+    dc.l    -2				; end of copperlist
 
-;sprpt	    EQU   $120
-;
-;spr	    EQU   $140
-;
-;* SpriteDef
-;sd_pos	    EQU   $00
-;sd_ctl	    EQU   $02
-;sd_dataa    EQU   $04
-;sd_dataB    EQU   $06  
-;sd_SIZEOF   EQU   $08
 
 empty_16x16_bob
     ds.b    64*4,0
@@ -4880,6 +4737,6 @@ empty_sprite
 screen_data:
     ds.b    SCREEN_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_LINE,0
 scroll_data
-	ds.b	SCROLL_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_LINE,0
+	ds.b	SCROLL_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_SCROLL_SCREEN_LINE,0
     
     	
