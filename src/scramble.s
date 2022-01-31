@@ -88,7 +88,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 2
+START_LEVEL = 4
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -163,6 +163,8 @@ MSG_NONE = 0
 MSG_SHOW = 1
 MSG_HIDE = 2
 
+FILL_TILE_1 = 33*16
+FILL_TILE_2 = FILL_TILE_1+16
 
 PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 ENEMY_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
@@ -943,8 +945,6 @@ init_player:
 	
     move.w	level_number(pc),d0
 	add.w	d0,d0
-	lea		filling_tile_table(pc),a0
-	move.w	(a0,d0.w),filling_tile
 	add.w	d0,d0
 	lea		level_tiles(pc),a0
 	move.l	(a0,d0.w),map_pointer
@@ -1196,22 +1196,8 @@ draw_tiles:
 .upperloop:
 	move.w	(a6)+,d0	; tile id
 
-	lea		(a4,d0.w),a0	; graphics
-	; cpu copy
-	move.l	a1,a2						; first dest plane
-	lea		(SCROLL_PLANE_SIZE,a1),a3	; second dest plane
+	bsr		.copy_tile
 
-	; copy both planes
-	REPT	8
-	move.b	(8,a0),(a3)
-	move.b	(a0)+,(a2)
-	add.w	d4,a2
-	add.w	d4,a3
-	ENDR
-
-	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
-
-	addq.w	#8,d6	; advance y
 	dbf		d2,.upperloop	
 	; one tile drawn
 	; lower part
@@ -1270,11 +1256,11 @@ draw_tiles:
 
 .fill
 	; now fill the rest with filler tile or nothing
-	move.w	filling_tile(pc),d0
-	bne.b	.ft
+	cmp.w	#3,level_number
+	bcc.b	.fill_with_tile
 	; empty
 	cmp.w	d7,d6
-	bcc.b	.ft
+	bcc.b	.fend
 	REPT	8
 	st.b	(a3)
 	clr.b	(a2)
@@ -1284,7 +1270,39 @@ draw_tiles:
 	addq.w	#8,d6
 	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
 	bra.b	.fill
-.ft
+.fend
+	rts
+.fill_with_tile
+	move.w	a1,d0
+	btst	#0,d0
+	beq.b	.ft1
+	move.w	#FILL_TILE_2,d0
+	bra.b	.fill_with_tile_loop
+.ft1
+	move.w	#FILL_TILE_1,d0
+
+.fill_with_tile_loop
+	cmp.w	d7,d6
+	bcc.b	.fend
+	bsr		.copy_tile
+	bra.b	.fill_with_tile_loop
+	
+.copy_tile
+	lea		(a4,d0.w),a0	; graphics
+	; cpu copy
+	move.l	a1,a2						; first dest plane
+	lea		(SCROLL_PLANE_SIZE,a1),a3	; second dest plane
+
+	; copy both planes
+	REPT	8
+	move.b	(8,a0),(a3)
+	move.b	(a0)+,(a2)
+	add.w	d4,a2
+	add.w	d4,a3
+	ENDR
+
+	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
+	addq.w	#8,d6	; advance y
 	rts
 	
 .advance_level
@@ -1292,8 +1310,6 @@ draw_tiles:
 	st.b	next_level_flag
 	bra	.out
 	
-blit_tile
-    rts
 	
 ; < D2: highscore
 draw_high_score
@@ -4312,11 +4328,6 @@ music_played
 
     even
 
-filling_tile_table
-	dc.w	0,0,0,33*16,33*16,34*16
-
-filling_tile:
-	dc.w	0
 
 bonus_score_display_message:
     dc.w    0

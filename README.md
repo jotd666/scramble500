@@ -48,7 +48,7 @@ MINOR ISSUES:
 	lea		mulNB_BYTES_PER_SCROLL_SCREEN_LINE_table(pc),a2
 	add.w	d1,d1
 	add.w	(a2,d1.w),a1	; offset
-
+- hide stars in levels with ceiling (2,5)
 
 BUILDING FROM SOURCES:
 
