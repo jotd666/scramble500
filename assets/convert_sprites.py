@@ -7,11 +7,19 @@ tile_height = 8
 sprites_dir = "../sprites"
 source_dir = "../src"
 
-dump_tiles = True
+dump_tiles = False
 
 outdir = "tiles"
 
-filling_tiles = {33*16,34*16}
+
+filling_tiles = {33,34}
+
+special_tiles = ({k:"ROCKET_TILE" for k in [8,9,11,12]} |
+                 {k:"FUEL_TILE" for k in [20,21,22,23]}|
+                 {k:"MYSTERY_TILE" for k in [15,16,17,18]}|
+                 {k:"BASE_TILE" for k in [41,42,43,44]}
+                 )
+special_tiles[0] = "EMPTY_TILE"
 
 has_ceiling = [False,True,False,False,True,False]
 
@@ -37,14 +45,11 @@ main_palette += [(0,0,0)] * (8-len(main_palette))
 tiles_palette = [(0,0,0),(240,0,0),(0,0,240),(240,240,0)]
 tiles_palette_level_5 = [(0,0,0),(32,208,0),(240,0,240),(240,240,0)]
 
-# special tiles
-ROCKET = 12
 BOSS = 86
 MYSTERY = 17
-FUEL = 29
+
 
 bitplanelib.palette_dump(main_palette,os.path.join(source_dir,"menu_palette.s"),as_copperlist=False)
-
 
 
 def process_maps():
@@ -92,7 +97,7 @@ def process_maps():
                         if not tinfo:
                             # tile not already found: create
                             tinfo = tile_id
-                            tile_id += 16
+                            tile_id += 1
                             tile_dict[blk] = tinfo
                             tile_id_to_xy[tinfo] = (x,y)
                         if tinfo in filling_tiles:
@@ -101,6 +106,9 @@ def process_maps():
                             column[cidx].append({"tile_id":tinfo,"y":y,"x":x})
 
                 matrix.append(column)
+
+            # it's more convenient to reorder tiles so ground & fill tiles come first
+            # then rockets, ship & fuel (4 tiles per object) and base
 
 
             for k,(x,y) in tile_id_to_xy.items():
@@ -133,9 +141,19 @@ def process_maps():
         f.write("\tdc.w\t-2\n") # end of levels
         with open(os.path.join(source_dir,"blocks.s"),"w") as f:
             f.write("; each block is 16 bytes (2 planes, 8 bytes per plane)\n")
-            for i in range(0,tile_id,16):
+            f.write("tiles:\n")
+            for i in range(tile_id):
                 f.write("\tincbin\ttile_{:02d}.bin\n".format(i))
+            f.write("\ntile_table:")
 
+            nb_tiles = tile_id
+            for i in range(nb_tiles):
+                if i % 8 == 0:
+                    f.write("\n\tdc.b\t")
+                f.write(special_tiles.get(i,"STANDARD_TILE"))
+                if i % 8 != 7 and i != nb_tiles-1:
+                    f.write(",")
+            f.write("\n")
 def process_tiles(json_file):
     with open(json_file) as f:
         tiles = json.load(f)

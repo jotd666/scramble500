@@ -88,7 +88,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 4
+;START_LEVEL = 4
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -152,19 +152,25 @@ NB_PLANES   = 3
 X_MAX=240
 Y_MAX=228
 X_SHIP_MIN=16	; min so we can see it fully
-X_SHIP_MAX=160  ; probably not that value
-Y_SHIP_MIN=24
+X_SHIP_MAX=64
+Y_SHIP_MIN=28
 Y_SHIP_MAX=Y_MAX-16
 
-; maybe too many slots...
-NB_ROLLBACK_SLOTS = 80
+EMPTY_TILE = 0
+STANDARD_TILE = 1
+ROCKET_TILE = 2
+FUEL_TILE = 3
+MYSTERY_TILE = 4
+BASE_TILE = 5
+
 ; messages from update routine to display routine
 MSG_NONE = 0
 MSG_SHOW = 1
 MSG_HIDE = 2
 
-FILL_TILE_1 = 33*16
-FILL_TILE_2 = FILL_TILE_1+16
+FILL_TILE_1 = 33
+FILL_TILE_2 = FILL_TILE_1+1
+GROUND_TILE = 10
 
 PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 ENEMY_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
@@ -1166,11 +1172,12 @@ stop_sounds
     bra _mt_end
 
 
+; < A5: pointer on column to update in screen tilemap
 ; < A6: map pointer
 ; < D0: x/y offset in bytes
 ; > A6: new map pointer
 draw_tiles:
-	movem.l	d0-d7/A0-a3,-(a7)
+	movem.l	d0-d7/A0-A5,-(a7)
 	lea		tiles,a4
 	move.w	d0,d5	; save X-offset for later on
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a1	; 2nd playfield
@@ -1220,6 +1227,8 @@ draw_tiles:
 	add.w	d4,a3
 	add.w	d4,a2
 	ENDR
+	clr.b	(a5)
+	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 	addq.w	#8,d6
 	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
 	bra.b	.clear
@@ -1228,28 +1237,15 @@ draw_tiles:
 	
 .lowerloop:
 	move.w	(a6)+,d0	; tile id
-	lea		(a4,d0.w),a0	; graphics
-	; cpu copy
-	move.l	a1,a2
-	lea		(SCROLL_PLANE_SIZE,a1),a3
+	bsr		.copy_tile
 
-	; copy both planes
-	REPT	8
-	move.b	(8,a0),(a3)
-	move.b	(a0)+,(a2)
-	add.w	d4,a2
-	add.w	d4,a3
-	ENDR
-
-	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
-	addq.w	#8,d6
 	dbf		d2,.lowerloop
 	move.w	#Y_MAX,d7
 	bsr.b		.fill
 
 
 .out
-	movem.l	(a7)+,d0-d7/A0-a3
+	movem.l	(a7)+,d0-d7/A0-a5
 	rts
 	
 ; < D7: y max
@@ -1267,6 +1263,8 @@ draw_tiles:
 	add.w	d4,a3
 	add.w	d4,a2
 	ENDR
+	st.b	(a5)
+	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 	addq.w	#8,d6
 	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
 	bra.b	.fill
@@ -1288,7 +1286,9 @@ draw_tiles:
 	bra.b	.fill_with_tile_loop
 	
 .copy_tile
+	lsl.w	#4,d0
 	lea		(a4,d0.w),a0	; graphics
+	lsr.w	#4,d0
 	; cpu copy
 	move.l	a1,a2						; first dest plane
 	lea		(SCROLL_PLANE_SIZE,a1),a3	; second dest plane
@@ -1300,6 +1300,8 @@ draw_tiles:
 	add.w	d4,a2
 	add.w	d4,a3
 	ENDR
+	move.b	d0,(a5)
+	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 
 	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
 	addq.w	#8,d6	; advance y
@@ -1616,38 +1618,23 @@ draw_intro_screen
 
 .out3
     rts
-.draw_bob
-    move.w intro_frame_index(pc),d6
-    and.w   d2,d6
-    add.w   d6,d6
-    add.w   d6,d6
-    move.l  (a0,d6.w),a0
-    
-    bsr blit_4_planes
-    rts
-    
-.load_sprite
-    bsr .get_frame
-    move.l  a0,d2
-    move.w  d2,(6,a1)
-    swap    d2
-    move.w  d2,(2,a1)
-    bsr store_sprite_pos
-    move.l  d0,(a0)
+
     
     rts
-.get_frame
-    move.w intro_frame_index(pc),d6
-    lsr.w   #3,d6
-    and.w   d2,d6
-    add.w   d6,d6
-    add.w   d6,d6
-    move.l  (a0,d6.w),a0
-    rts
+
     
 
 .color_table
-    dc.w    $0FF,$0FF,$FFF,$FFF,$FF0,$FF0,$0F0,$0F0,$F00,$F00
+	REPT	3
+    dc.w    $0DD
+	ENDR
+	REPT	3
+	dc.w	$FF0
+	ENDR
+	REPT	4
+	dc.w	$80D
+	ENDR
+	
 .pos_table  
     dc.l    .pos1
     dc.l    .pos2
@@ -1974,11 +1961,11 @@ draw_current_level
 .lloop
 	move.w	#2,d5		; 3 planes
 	lea		screen_data,a1
-	lea		purple_level_mark,a0
+	lea		red_level_mark,a0
 	cmp.w	level_number(pc),d6
 	beq.b	.ploop
 	bcs.b	.ploop
-	lea		red_level_mark,a0
+	lea		purple_level_mark,a0
 .ploop
     movem.l d0-d6/a1-a4,-(a7)
     bsr blit_plane_any_internal
@@ -2124,11 +2111,16 @@ draw_ground:
 	move.w	#0,d0
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
 	lea		ground_table(pc),a6
+	lea		screen_tile_table,a5
+	move.l	a5,$100		; TEMP
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
+	addq.w	#1,a5
 	dbf	d7,.tileloop
+	
 	rts
+	
 	
 	IFD	SCROLL_DEBUG
 ; what: writes an decimal number with a given color
@@ -2716,8 +2708,10 @@ draw_scrolling_tiles
 	move.l	map_pointer(pc),a6
 	; tiles are 8 pixels wide. shift is 0-16 we have to
 	; issue 2 tile columns at a time
+	lea	screen_tile_table+NB_BYTES_PER_PLAYFIELD_LINE-2,a5
 	bsr	draw_tiles
 	addq.w	#1,d0
+	lea	screen_tile_table+NB_BYTES_PER_PLAYFIELD_LINE-1,a5
 	bsr	draw_tiles
 	move.l	a6,map_pointer
 	
@@ -2766,6 +2760,18 @@ update_scrolling
 	bne.b	.no_next_tile
 	move.w	#15,d0
 	st.b	draw_tile_column_message
+	; scroll logical tile screen map
+	lea	screen_tile_table,a0
+	move.w	#NB_LINES-1,d1
+.yloop
+	move.l	a0,a1
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE/2-2,d2
+.xloop
+	move.w	(2,a1),(a1)+
+	dbf		d2,.xloop
+	lea		(NB_BYTES_PER_PLAYFIELD_LINE,a0),a0	; next line
+	dbf		d1,.yloop
+	
 	addq.w	#2,scroll_offset
 	cmp.w	#NB_BYTES_PER_PLAYFIELD_LINE,scroll_offset
 	bne.b	.no_next_tile
@@ -4459,7 +4465,7 @@ player_one_string_clear
 ground_table:
 	REPT	28
 	dc.w	0
-	dc.w	1,200-24-16,160
+	dc.w	1,200-24-16,GROUND_TILE
 	ENDR
 
     MUL_TABLE   40
@@ -4554,7 +4560,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY start_music,2,SOUNDFREQ,40
 
 
-tiles:
+
 	include	"blocks.s"
 
 NB_PLAYFIELD_PALETTES = (end_playfield_palettes-playfield_palettes)/8
@@ -4615,6 +4621,8 @@ record_input_table:
     
     
 
+screen_tile_table
+	ds.w	NB_LINES*NB_BYTES_PER_PLAYFIELD_LINE
     
     SECTION  S4,CODE
     include ptplayer.s
