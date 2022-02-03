@@ -16,7 +16,7 @@ alt_sampling_rate = 16000
 for wav_file in wav_files:
     raw_file = os.path.join(outdir,os.path.splitext(os.path.basename(wav_file))[0]+".raw")
     def get_sox_cmd(sr,output):
-        return [sox,"--volume","1.0",wav_file,"--channels","1","--bits","8","-r",str(sr),"--encoding","unsigned-integer",output]
+        return [sox,"--volume","1.0",wav_file,"--channels","1","--bits","8","-r",str(sr),"--encoding","signed-integer",output]
     used_sampling_rate = sampling_rate
 
     cmd = get_sox_cmd(used_sampling_rate,raw_file)
@@ -26,13 +26,16 @@ for wav_file in wav_files:
         contents = f.read()
     # compute max amplitude so we can feed the sound chip with a amped sound sample
     # and reduce the replay volume. this gives better sound quality than replaying at max volume
-    maxval = max(contents)
-    ratio = 254/maxval
+    signed_data = [x if x < 128 else x-256 for x in contents]
+    maxsigned = max(signed_data)
+    minsigned = min(signed_data)
 
-    print("    SOUND_ENTRY {},2,SOUNDFREQ,{}".format(os.path.splitext(wav_file)[0],int(64/ratio)))
-    maxed_contents = [int(x*ratio) for x in contents]
+    amp_ratio = max(maxsigned,abs(minsigned))/128
 
-    signed_contents = bytes([x if x < 128 else 256-x for x in maxed_contents])
+    print("    SOUND_ENTRY {},2,SOUNDFREQ,{}".format(os.path.splitext(wav_file)[0],int(64*amp_ratio)))
+    maxed_contents = [int(x/amp_ratio) for x in signed_data]
+
+    signed_contents = bytes([x if x >= 0 else 256+x for x in maxed_contents])
     # pre-pad with 0W, used by ptplayer for idling
     if signed_contents[0] != b'\x00' and signed_contents[1] != b'\x00':
         # add zeroes

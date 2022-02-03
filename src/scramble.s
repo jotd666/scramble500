@@ -79,10 +79,8 @@ MODE_KILL = 1<<2
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
-; enemies not moving/no collision detection
-;NO_ENEMIES
 
 ;HIGHSCORES_TEST
 
@@ -172,7 +170,7 @@ FILL_TILE_1 = 33
 FILL_TILE_2 = FILL_TILE_1+1
 GROUND_TILE = 10
 
-PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
+PLAYER_KILL_TIMER = 16*4*3
 ENEMY_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 GAME_OVER_TIMER = ORIGINAL_TICKS_PER_SEC*3
 
@@ -957,6 +955,7 @@ init_player:
 	move.w	#15,scroll_shift
 	clr.l	scroll_offset
 	clr.w	playfield_palette_index
+	clr.w	d0
 	bsr		next_playfield_palette
 
     lea player(pc),a0
@@ -1626,10 +1625,10 @@ draw_intro_screen
 
 .color_table
 	REPT	3
-    dc.w    $0DD
+    dc.w    $FF0
 	ENDR
 	REPT	3
-	dc.w	$FF0
+	dc.w	$0DD
 	ENDR
 	REPT	4
 	dc.w	$80D
@@ -2112,7 +2111,6 @@ draw_ground:
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
 	lea		ground_table(pc),a6
 	lea		screen_tile_table,a5
-	move.l	a5,$100		; TEMP
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
@@ -2626,27 +2624,28 @@ update_all
 	cmp.w	#ORIGINAL_TICKS_PER_SEC*8,d0
 	bne.b	.no_palette_change
 	; change palette
+	clr.w	d0
 	bsr		next_playfield_palette
 	clr.w	d0
 .no_palette_change
 	move.w	d0,playfield_palette_timer
 	
-	bsr	update_scrolling
 	
     bsr update_player
-    
-    IFND    NO_ENEMIES
     tst.w   player_killed_timer
     bpl.b   .skip_cc     ; player killed, no collisions	
+	
+	bsr	update_scrolling
+    
     bsr check_collisions
 .skip_cc
     bsr update_enemies
     
     tst.w   player_killed_timer
-    bpl.b   .skip_a_lot     ; player killed, no music management, no collisions
+    bpl.b   .skip_a_lot
     
     bsr check_collisions
-    ENDC
+
     
 
 .skip_a_lot
@@ -2788,6 +2787,38 @@ update_scrolling
 ; pretty fast specially when 7 enemies are around
 
 check_collisions
+	clr.w	d0
+    lea player(pc),a3
+    move.w  xpos(a3),d0
+	add.w	#8,d0	; skip exhaust
+    move.w  ypos(a3),d1
+	bsr		get_tile_type
+	move.b	(a0),d0
+	
+	beq.b	.okay
+	
+	; non-zero means deadly
+	bsr	player_killed
+	
+	rts
+	
+	
+	bmi.b	.filler
+	lea	tile_table(pc),a0
+	move.b	(a0,d0.w),d0	; convert to logical tile type
+	cmp.b	#STANDARD_TILE,d0
+	beq.b	.rocks
+	cmp.b	#ROCKET_TILE,d0
+	bne.b	.okay
+	move.w	#$F,$DFF180
+	rts
+.filler
+	move.w	#$F00,$dFF180
+	rts
+.rocks
+	move.w	#$0F0,$DFF180
+	rts
+.okay
 	rts
 	
     lea player(pc),a3
@@ -2810,8 +2841,6 @@ check_collisions
     dbf d7,.gloop
     rts
 .collision
-    ; is the enemy falling, hanging, whatever...
-	
     ; player is killed
     tst.b   invincible_cheat_flag
     bne.b   .nomatch
@@ -2823,7 +2852,17 @@ check_collisions
     lea     player_killed_sound(pc),a0
     bra     play_fx
    
-
+player_killed:
+    tst.b   invincible_cheat_flag
+    bne.b   .nomatch
+	move.w	#PLAYER_KILL_TIMER,player_killed_timer
+	clr.w	death_frame_offset
+	clr.w	player+frame
+	lea	player_killed_sound,a0
+	bsr	play_fx
+.nomatch
+	rts
+	
     
 CHARACTER_X_START = 88
 
@@ -2999,7 +3038,8 @@ update_intro_screen
     dc.b    "... MYSTERY",0
     even
 
-    
+ship_explosion_table:
+	dc.l	ship_explosion_1,ship_explosion_2,ship_explosion_3,ship_explosion_4
     
 update_enemies:
     rts
@@ -3028,31 +3068,38 @@ play_loop_fx
     
 update_player
     lea     player(pc),a4
-    bsr animate_player    
-	
-    ; no moves (zeroes horiz & vert)
-    clr.l  h_speed(a4)  
-
     move.w  player_killed_timer(pc),d6
     bmi.b   .alive
-    moveq.w #8,d0
-    cmp.w   #2*PLAYER_KILL_TIMER/3,d6
-    bcs.b   .no_first_frame
-    moveq.w #4,d0
-    bra.b   .frame_done
-.no_first_frame
-    cmp.w   #PLAYER_KILL_TIMER/3,d6
-    bcs.b   .no_second_frame
-    moveq.w #0,d0
-.no_second_frame
 
-.frame_done    
-    move.w  d0,death_frame_offset   ; 0,4,8
+	subq.w	#1,d6
+	beq.b	.restart_level
+	move.w	d6,player_killed_timer
+	
+	btst	#0,d6
+	beq.b	.no_palette_switch
+	moveq	#1,d0
+	bsr		next_playfield_palette
+.no_palette_switch
+	
+	move.w	frame(a4),d0
+	addq.w	#1,d0
+	cmp.w	#$40,d0
+	bne.b	.no_reset
+	clr.w	d0
+.no_reset
+	move.w	d0,frame(a4)
+	
+	lsr.w	#4,d0
+	LOGPC	100
+	move.w	d0,death_frame_offset   ; 0,1,2,3
     rts
+.restart_level
+	move.w  #STATE_LIFE_LOST,current_state
+	rts
+	
 .alive
+    bsr animate_player    
 
-    
-.okmove
 
     move.l  joystick_state(pc),d0
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -3278,8 +3325,10 @@ draw_player:
     lea     player(pc),a2
     tst.w  player_killed_timer
     bmi.b   .normal
-    ;;lea     copier_dead_table,a0
+    lea     ship_explosion_table(pc),a0
     move.w  death_frame_offset(pc),d0
+	add.w	d0,d0
+	add.w	d0,d0
     add.w   d0,a0       ; proper frame to blit
     move.l  (a0),a0
     bra.b   .shipblit
@@ -3410,21 +3459,6 @@ ye  set ys+16       ; size = 16
     dc.b  ys&255, 0, ye&255, ((ys>>6)&%100) | ((ye>>7)&%10)
   endr
 
- 
-; what: checks if x,y collides with maze
-; returns valid location out of the maze
-; (allows to handle edges, with a limit given by
-; the move methods)
-; args:
-; < d0 : x (screen coords)
-; < d1 : y
-; > d0.b : not 0 if maze, 0 if no maze
-; out of bounds returns -1 which makes it legal to move to (edges)
-; trashes: a0,a1,d1
-
-is_location_legal:
-    moveq.l	#-1,d0
-    rts
     
 ; what: checks what is below x,y
 ; returns 0 out of the maze
@@ -3434,11 +3468,13 @@ is_location_legal:
 ; < d0 : x (screen coords)
 ; < d1 : y
 ; > a0: points on byte value to read (can be written to unless it points on negative value!!)
-; which is 0 if no maze, 
-;                  1 if has dot (or needs painting)
-;                  2 if temp paint or dot eaten
-;                  3 if fully painted
-; trashes: a1,d0,d1
+; which is 0 if empty space 
+; -1 if filler (not really possible to reach, though)
+; tile id for the rest (needs to be decoded with "tile_table"
+; if not just checking for collision with the scenery, ex: shots & bombs
+; need to know what they're hitting)
+;
+; trashes: d0,d1
 
 get_tile_type:
     cmp.w   #Y_MAX+1,d1
@@ -3447,19 +3483,16 @@ get_tile_type:
     bcc.b   .out_of_bounds
     ; no need to test sign (bmi) as bcc works unsigned so works on negative!
     ; apply x,y offset
-    add.w   #4,d1       ; center
 
     lsr.w   #3,d1       ; 8 divide : tile
-    lea     mul28_table(pc),a0
+    lea     mulNB_BYTES_PER_PLAYFIELD_LINE_table(pc),a0
     add.w   d1,d1
-    move.w  (a0,d1.w),d1    ; times 26
-    ;;move.l maze_wall_table(pc),a0
-    
+    move.w  (a0,d1.w),d1    ; times 28
+    lea		screen_tile_table,a0
     
     add.w   d1,a0
     lsr.w   #3,d0   ; 8 divide
     add.w   d0,a0
-    move.b  (a0),d0    ; retrieve value
     rts
 .out_of_bounds
     lea .minus_one(pc),a0  ; allowed, the move routine already has bounds, points on -1
@@ -4469,8 +4502,7 @@ ground_table:
 	ENDR
 
     MUL_TABLE   40
-    MUL_TABLE   28
-	MUL_TABLE	NB_BYTES_PER_SCROLL_SCREEN_LINE
+    MUL_TABLE   NB_BYTES_PER_PLAYFIELD_LINE
 	
 square_table:
 	rept	256
@@ -4514,24 +4546,29 @@ play_fx
 .no_sound
     rts
     
+; < D0: if != 0 don't change sky color at all
 next_playfield_palette:
-	move.w	playfield_palette_index(pc),d0
+	move.w	playfield_palette_index(pc),d1
 	lea	playfield_palettes(pc),a0
-	add.w	d0,a0
+	add.w	d1,a0
+	tst		d0
+	bne.b	.skip_background
 	; load it
 	; first color is different
-	move.w	(a0)+,colors+2	; first color, in copperlist
+	move.w	(a0),colors+2	; first color, in copperlist
+.skip_background
+	addq.w	#2,a0
 	lea		_custom+color+2+16,a1
 	move.w	(a0)+,(a1)+
 	move.w	(a0)+,(a1)+
 	move.w	(a0)+,(a1)+
 	; next
-	addq.w	#8,d0
-	cmp.w	#NB_PLAYFIELD_PALETTES*8,d0
+	addq.w	#8,d1
+	cmp.w	#NB_PLAYFIELD_PALETTES*8,d1
 	bne.b	.no_wrap
-	clr.w	d0
+	clr.w	d1
 .no_wrap
-	move.w	d0,playfield_palette_index
+	move.w	d1,playfield_palette_index
 	rts
 
     
@@ -4553,13 +4590,11 @@ SOUND_ENTRY:MACRO
     ENDM
     
     ; radix, ,channel (0-3)
-    SOUND_ENTRY low_fuel,2,SOUNDFREQ,42
-    SOUND_ENTRY player_killed,2,SOUNDFREQ,53
-    SOUND_ENTRY rocket_explodes,2,SOUNDFREQ,44
-    SOUND_ENTRY bomb_falling,2,SOUNDFREQ,36
-    SOUND_ENTRY start_music,2,SOUNDFREQ,40
-
-
+    SOUND_ENTRY low_fuel,2,SOUNDFREQ,37
+    SOUND_ENTRY player_killed,2,SOUNDFREQ,56
+    SOUND_ENTRY rocket_explodes,2,SOUNDFREQ,40
+    SOUND_ENTRY bomb_falling,2,SOUNDFREQ,17
+    SOUND_ENTRY start_music,2,SOUNDFREQ,31
 
 	include	"blocks.s"
 
@@ -4664,32 +4699,7 @@ end_color_copper:
    dc.w  ddfstop,$00d0            ;  DDFSTOP := 0x00d0
       
 sprites:
-	IFEQ	1
-    ; #0
-    dc.w    sprpt+0,0
-    dc.w    sprpt+2,0
-    ; #1
-    dc.w    sprpt+4,0
-    dc.w    sprpt+6,0
-    ; #2
-    dc.w    sprpt+8,0
-    dc.w    sprpt+10,0
-    ; #3
-    dc.w    sprpt+12,0
-    dc.w    sprpt+14,0   
-    ; #4
-    dc.w    sprpt+16,0
-    dc.w    sprpt+18,0
-    ; #5
-    dc.w    sprpt+20,0
-    dc.w    sprpt+22,0
-    ; #6
-    dc.w    sprpt+24,0
-    dc.w    sprpt+26,0
-    ; #7
-    dc.w    sprpt+28,0
-    dc.w    sprpt+30,0
-	ENDC
+
 ;scroll_mask_sprite
 ;    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_ctl,0
 ;    dc.w    spr+sd_SIZEOF*BLANKER_SPRITE_INDEX+sd_pos,0
@@ -4745,6 +4755,15 @@ ship_3:
 	incbin	"ship_3.bin"
 ship_4:
 	incbin	"ship_4.bin"
+	
+ship_explosion_1:
+	incbin	"ship_explosion_1.bin"
+ship_explosion_2:
+	incbin	"ship_explosion_2.bin"
+ship_explosion_3:
+	incbin	"ship_explosion_3.bin"
+ship_explosion_4:
+	incbin	"ship_explosion_4.bin"
 	
 
 	
