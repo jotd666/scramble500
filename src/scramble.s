@@ -2111,6 +2111,7 @@ draw_ground:
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
 	lea		ground_table(pc),a6
 	lea		screen_tile_table,a5
+	move.l	a5,$100
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
@@ -2481,7 +2482,8 @@ level3_interrupt:
 	cmp.b	#$63,d0
 	beq.b	.no_pause
 .outcop
-    move.w  #$0010,(intreq,a5) 
+	; a5 has been used by update
+    move.w  #$0010,_custom+intreq
     movem.l (a7)+,d0-a6
     rte    
 .vblank
@@ -2762,6 +2764,7 @@ update_scrolling
 	; scroll logical tile screen map
 	lea	screen_tile_table,a0
 	move.w	#NB_LINES-1,d1
+	;TODO watch +$A8 voir d'ou ca vient
 .yloop
 	move.l	a0,a1
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE/2-2,d2
@@ -2782,23 +2785,32 @@ update_scrolling
 
 
 		
-; hacked quick tile collision detection
-; trashes a lot of registers but is probably
-; pretty fast specially when 7 enemies are around
 
 check_collisions
 	clr.w	d0
     lea player(pc),a3
-    move.w  xpos(a3),d0
-	add.w	#8,d0	; skip exhaust
-    move.w  ypos(a3),d1
+	; testing 2 tiles on ship only, let's see how it goes
+	; front
+    move.w  xpos(a3),d2
+    move.w  ypos(a3),d3
+	move.w	d2,d0
+	add.w	#16,d0	; front
+	move.w	d3,d1
 	bsr		get_tile_type
-	move.b	(a0),d0
+	tst.b	(a0)	
+	bne.b	player_killed
 	
+	move.w	d2,d0
+	add.w	#8,d0	; skip exhaust
+	move.w	d3,d1	; upper
+	sub.w	#4,d1
+    move.w  xpos(a3),d0	; back
+	bsr		get_tile_type
+	tst.b	(a0)	
 	beq.b	.okay
 	
 	; non-zero means deadly
-	bsr	player_killed
+	bra	player_killed
 	
 	rts
 	
@@ -3090,7 +3102,6 @@ update_player
 	move.w	d0,frame(a4)
 	
 	lsr.w	#4,d0
-	LOGPC	100
 	move.w	d0,death_frame_offset   ; 0,1,2,3
     rts
 .restart_level
@@ -4657,7 +4668,7 @@ record_input_table:
     
 
 screen_tile_table
-	ds.w	NB_LINES*NB_BYTES_PER_PLAYFIELD_LINE
+	ds.b	NB_LINES*NB_BYTES_PER_PLAYFIELD_LINE
     
     SECTION  S4,CODE
     include ptplayer.s
