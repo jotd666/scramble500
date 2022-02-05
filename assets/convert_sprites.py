@@ -8,17 +8,22 @@ sprites_dir = "../sprites"
 source_dir = "../src"
 
 dump_tiles = False
+dump_fonts = False
+dump_maps = True
 
 outdir = "tiles"
 
 
 filling_tiles = {33,34}
+filler_tile_table = sorted(filling_tiles)
 
 special_tiles = ({k:"ROCKET_TILE" for k in [8,9,11,12]} |
                  {k:"FUEL_TILE" for k in [20,21,22,23]}|
                  {k:"MYSTERY_TILE" for k in [15,16,17,18]}|
                  {k:"BASE_TILE" for k in [41,42,43,44]}
                  )
+special_tiles_set = special_tiles
+
 special_tiles[0] = "EMPTY_TILE"
 
 has_ceiling = [False,True,False,False,True,False]
@@ -55,8 +60,15 @@ bitplanelib.palette_dump(main_palette,os.path.join(source_dir,"menu_palette.s"),
 def process_maps():
     tile_dict = {}
     tile_id = 0
+    tile_id_png_dict = {}
     dumped_set = set()
     max_level = 6
+
+    filled_tile = Image.new("RGB",(tile_width,tile_height))
+    for i in range(tile_width):
+        for j in range(tile_height):
+            filled_tile.putpixel((i,j),(0,0,240))
+
     with open(os.path.join(source_dir,"tilemap.s"),"w") as f:
         f.write("level_tiles:\n")
         for level_index in range(1,max_level+1):
@@ -120,6 +132,9 @@ def process_maps():
                     if dump_tiles:
                         print("dumping {}".format(outname))
                         ti.save(outname)
+                    if dump_maps:
+                        # save png image in id => image dict for map rebuild
+                        tile_id_png_dict[k] = ti
 
                     outname = "{}/tile_{:02}.bin".format(sprites_dir,k)
 
@@ -136,6 +151,58 @@ def process_maps():
                         for c in sc:
                             f.write(",{}".format(c["tile_id"]))
                     f.write("\n")
+
+            if dump_maps:
+                hide_enemies = True
+                # re-dump maps as png (debug, check if all is okay)
+                screen_nb_tiles = 28
+                x = 0
+                level_dump = Image.new("RGB",(tile_width*(len(matrix)+screen_nb_tiles),200))
+                ground_tile = tile_id_png_dict[10]  # id for ground tile is 10
+                y_ground = 200-5*tile_height
+                for i in range(screen_nb_tiles):
+                    level_dump.paste(ground_tile,(x,y_ground))
+                    # draw ground filler (not special filling tile in any case)
+                    for y in range(y_ground+tile_height,200,8):
+                        level_dump.paste(filled_tile,(x,y))
+                    x += tile_width
+
+                def fill_col(y_start,y_end):
+                    for y_fill in range(y_start,y_end,8):
+                        if level_index < 4:
+                            level_dump.paste(filled_tile,(x,y_fill))
+                        else:
+                            level_dump.paste(tile_id_png_dict[filler_tile_table[bool(x % 16)]],(x,y_fill))
+
+
+                for level,c in enumerate(matrix,1):
+                    # for each x, number of ceiling tiles, y start, tile ids
+                    upper,lower = c
+                    y = 0
+                    for d in upper:
+                        tid = d["tile_id"]
+                        y_start = d["y"]
+                        # fill to y_start
+                        fill_col(y,y_start)
+                        y = y_start
+                        if not hide_enemies or tid not in special_tiles_set:
+                            level_dump.paste(tile_id_png_dict[tid],(x,y))
+                        y += 8
+
+                    for d in lower:
+                        tid = d["tile_id"]
+                        y_start = d["y"]
+                        y = y_start
+                        if not hide_enemies or tid not in special_tiles_set:
+                            level_dump.paste(tile_id_png_dict[tid],(x,y))
+                        y += 8
+                    # fill to end
+                    fill_col(y,200)
+
+                    x += tile_width
+
+
+                level_dump.save("tiles/level_{:02}.png".format(level_index))
 
             f.write("\tdc.w\t-1\n") # end of level
         f.write("\tdc.w\t-2\n") # end of levels
@@ -154,6 +221,7 @@ def process_maps():
                 if i % 8 != 7 and i != nb_tiles-1:
                     f.write(",")
             f.write("\n")
+
 def process_tiles(json_file):
     with open(json_file) as f:
         tiles = json.load(f)
@@ -328,10 +396,10 @@ def process_fonts(dump=False):
 process_maps()
 
 
-process_tiles("tiles_gray.json")
+#process_tiles("tiles_gray.json")
 # 8 colors of ship & objects playfield
 game_palette = process_tiles("tiles_color.json")
 bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
 
 
-process_fonts()
+#process_fonts(dump_fonts)
