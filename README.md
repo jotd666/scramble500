@@ -41,15 +41,26 @@ CREDITS:
 - 125scratch: sprite rips https://www.spriters-resource.com/arcade/scramble
 - konami: original game :)
 
-MINOR ISSUES:
+ISSUES:
 
 - highscores 1ST and 2ND are missing
-- clear rockets, ships... on playfield scroll:
-	lea		mulNB_BYTES_PER_SCROLL_SCREEN_LINE_table(pc),a2
-	add.w	d1,d1
-	add.w	(a2,d1.w),a1	; offset
+- clear rockets, ships... on playfield scroll disaligned sometimes
 - hide stars in levels with ceiling (2,5)
-- wrong tile auto layout in level 5
+- ship explosion wrong animation 1 2 1 2 1 2 3
+- sound loop is wrong
+- wrong enemies erasures
+- start music: play on separate screen
+- wrong/missing colors on bombs/explosions (check ship which is correct)
+
+TODO
+
+- specific sound loops per levels
+- flying rockets
+- depleting fuel
+- crash on low fuel
+- ufos
+- asteroids
+- animated base
 
 BUILDING FROM SOURCES:
 

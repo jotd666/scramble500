@@ -74,6 +74,7 @@ def process_maps():
     dumped_set = set()
     max_level = 6
     objects = []
+    absolute_x = 0
 
     filled_tile = Image.new("RGB",(tile_width,tile_height))
     for i in range(tile_width):
@@ -198,7 +199,7 @@ def process_maps():
                     if not hide_enemies or tid not in special_tiles_set:
                         level_dump.paste(tile_id_png_dict[tid],(x,y))
                     if tid in special_tile_upper_corner:
-                        objects.append((x,y,special_tile_upper_corner[tid]))
+                        objects.append((absolute_x,y,special_tile_upper_corner[tid]))
 
 
                 for c in matrix:
@@ -223,9 +224,14 @@ def process_maps():
                     # fill to end
                     fill_col(y,200)
 
-                    x += tile_width
+                    absolute_x += tile_width
 
                 level_dump.save("tiles/level_{:02}.png".format(level_index))
+
+            f.write("\tdc.w\t-1\n") # end of level
+
+        f.write("\tdc.w\t-2\n") # end of levels
+
         if dump_maps: # for scratch project
             # save 3 lists, x,y,type
             with open("tiles/x_list.txt","w") as fx, open("tiles/y_list.txt","w") as fy, open("tiles/type_list.txt","w") as ft:
@@ -234,8 +240,6 @@ def process_maps():
                     fy.write("{}\n".format(y))
                     ft.write("{}\n".format(t))
 
-            f.write("\tdc.w\t-1\n") # end of level
-        f.write("\tdc.w\t-2\n") # end of levels
         with open(os.path.join(source_dir,"blocks.s"),"w") as f:
             f.write("; each block is 16 bytes (2 planes, 8 bytes per plane)\n")
             f.write("tiles:\n")

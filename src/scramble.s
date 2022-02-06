@@ -93,7 +93,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 4
+START_LEVEL = 4
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -1273,7 +1273,11 @@ draw_tiles:
 	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d4	; we'll need this value A LOT
 	move.w	(a6)+,d2	; number of vertical tiles to draw - upper part
 	beq.b	.lower
-	bmi.b	.advance_level	
+	bpl.b	.okay
+	; level/game ending (-1/-2)
+	; should be detected outside this routine
+	blitz
+.okay	
 	; upper part
 	subq.w	#1,d2
 	move.w	(a6)+,d1	; y start	
@@ -1393,10 +1397,6 @@ draw_tiles:
 	addq.w	#8,d6	; advance y
 	rts
 	
-.advance_level
-	addq.w	#1,level_number
-	st.b	next_level_flag
-	bra	.out
 	
 	
 ; < D2: highscore
@@ -2198,7 +2198,6 @@ draw_ground:
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
 	lea		ground_table(pc),a6
 	lea		screen_tile_table,a5
-	move.l	a5,$100
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
@@ -2814,11 +2813,27 @@ draw_scrolling_tiles
 	move.l	map_pointer(pc),a6
 	; tiles are 8 pixels wide. shift is 0-16 we have to
 	; issue 2 tile columns at a time
+	
 	lea	screen_tile_table+NB_BYTES_PER_PLAYFIELD_LINE-2,a5
+	moveq.w	#1,d7
+.dtloop
 	bsr	draw_tiles
 	addq.w	#1,d0
-	lea	screen_tile_table+NB_BYTES_PER_PLAYFIELD_LINE-1,a5
-	bsr	draw_tiles
+	addq.w	#1,a5
+	tst.w	(a6)
+	bpl.b	.no_end
+	addq.w	#2,a6
+	; peek on the next value
+	tst.w	(a6)
+	bpl.b	.level_completed
+	; -2 (two negatives in a row) means loop over last level
+	lea		level6map(pc),a6
+	bra.b	.no_end
+.level_completed
+	addq.w	#1,level_number
+	st.b	next_level_flag
+.no_end
+	dbf		d7,.dtloop
 	move.l	a6,map_pointer
 	
 	; now we have to copy what we just created so when we
@@ -3149,7 +3164,7 @@ bomb_animation_table:
 	dc.l	bomb_4,bomb_4
 	dc.l	bomb_5
 bomb_animation_table_end
-
+	
 explosion_animation_table
 	REPT	9
 	dc.l	explosion_1
@@ -3162,6 +3177,19 @@ explosion_animation_table
 	ENDR
 	REPT	9
 	dc.l	explosion_4
+	ENDR
+	; second part
+	REPT	9
+	dc.l	explosion_5
+	ENDR
+	REPT	9
+	dc.l	explosion_6
+	ENDR
+	REPT	9
+	dc.l	explosion_7
+	ENDR
+	REPT	9
+	dc.l	explosion_8
 	ENDR
 	
 	; directly copied from reverse-engineered arcade source
@@ -3552,6 +3580,7 @@ find_slot:
 	bra.b	.out	; no free slot...
 .found
 	move.b	#1,active(a4)
+	clr.l	previous_address(a4)
 .out
 	rts
 	
@@ -3607,6 +3636,7 @@ update_shots:
 	move.w	d0,xpos(a4)
 	; test if hitting something (scenery)
 	move.w	ypos(a4),d1
+	subq.w	#8,d1
 	bsr		get_tile_type
 	tst.b	(a0)
 	beq.b	.no_update
@@ -3675,6 +3705,7 @@ something_was_hit
 	blitz	; todo base
 	bra.b	.object_shot
 .mystery_shot
+	; TODO score 100, 200, 300 displayed
 	; random scoring, original games awards:
 	; 100 2 out of 4 times
 	; 200 3 out of 4 times
@@ -3689,12 +3720,20 @@ something_was_hit
 	bsr		add_to_score
 	bra.b	.object_shot
 .fuel_shot
+	; create an explosion for the object
+	moveq.w	#1,d2
+	bsr		create_explosion
+
 	moveq.l	#10,d0		; ground rocket: 50 points
 	bsr		add_to_score
 	lea		rocket_explodes_sound,a0
 	bsr		play_fx
 	bra.b	.object_shot
 .rocket_shot
+	; create an explosion for the object
+	moveq.w	#1,d2
+	bsr		create_explosion
+
 	moveq.l	#5,d0		; ground rocket: 50 points
 	bsr		add_to_score
 	lea		rocket_explodes_sound,a0
@@ -3713,6 +3752,7 @@ something_was_hit
 ; < a0: logical pointer on top left logical object tile
 ; (in screen_tile_table)
 ; < D0/D1 coords in non scrolling playfield (pointed by screen_data)
+; trashes: none
 
 remove_object
 	movem.l	d0-d3/a0-a3,-(a7)
@@ -3860,8 +3900,6 @@ update_bombs:
 	bra.b	.no_update
 	
 draw_explosions:
-	rts
-	
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
 	lea	explosions(pc),a4
 .loop	
@@ -3871,6 +3909,9 @@ draw_explosions:
     lea screen_data,a1
 	lea	explosion_animation_table(pc),a0
 	move.w	frame(a4),d0
+	tst.w	explosion_type(a4)
+	beq.b	.okay
+	add.w	#9*4,d0	; second explosion type
 .okay
 	move.l	(a0,d0.w),a0	; get proper frame
 .do_draw
@@ -4010,12 +4051,14 @@ erase_explosions:
     moveq.l #-1,d5
 	bra.b	.no_erase
 .not_first_draw
+
     ; first, restore plane 0
     ; erase plane 0
     lea screen_data,a1
     sub.l   a1,d5       ; d5 is now the offset
 	bclr	#0,d5		; align on even planes
 	add.w	d5,a1
+	
 	REPT	2
 	bsr.b	clear_16x16_plane
 	add.w	#SCREEN_PLANE_SIZE,a1
@@ -4169,7 +4212,7 @@ clear_bomb_plane
 	
 clear_16x16_plane
 	REPT	16
-	clr.l	(NB_BYTES_PER_LINE*(REPTN),a1)
+	clr.l	(NB_BYTES_PER_LINE*REPTN,a1)
 	ENDR
 	rts
 	
@@ -4297,7 +4340,7 @@ blit_plane
 ; < D1: Y
 ; < D2: blit mask (removed from API)
 ; trashes: D0-D1
-; returns: A1 as start of destination (A1 = orig A1+40*D1+D0/16)
+; returns: A1 as start of destination (A1 = orig A1+40*D1+(D0/16)*2)
 
 blit_16x16_plane_cookie_cut
     movem.l d2-d7/a2-a5,-(a7)
@@ -4306,6 +4349,7 @@ blit_16x16_plane_cookie_cut
     move.w  #4,d2       ; 16 pixels + 2 shift bytes
     move.w  #16,d4      ; 16 pixels height   
     bsr blit_plane_any_internal_cookie_cut
+.okay
     movem.l (a7)+,d2-d7/a2-a5
     rts
     
