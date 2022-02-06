@@ -13,15 +13,25 @@ dump_maps = True
 
 outdir = "tiles"
 
-
+ALPHA_TRANSPARENT = (255,255,255,0)
 filling_tiles = {33,34}
 filler_tile_table = sorted(filling_tiles)
 
-special_tiles = ({k:"ROCKET_TILE" for k in [8,9,11,12]} |
-                 {k:"FUEL_TILE" for k in [20,21,22,23]}|
-                 {k:"MYSTERY_TILE" for k in [15,16,17,18]}|
-                 {k:"BASE_TILE" for k in [41,42,43,44]}
+position_flags = ["|TOP_CORNER_F|LEFT_CORNER_F","|LEFT_CORNER_F","|TOP_CORNER_F",""]
+rocket_tiles = [8,9,11,12]
+fuel_tiles = [20,21,22,23]
+mystery_tiles = [15,16,17,18]
+base_tiles = [41,42,43,44]
+
+special_tile_upper_corner = {8:0,20:1,15:2,41:3}
+
+special_tiles = ({k:"ROCKET_TILE" for k in rocket_tiles} |
+                 {k:"FUEL_TILE" for k in fuel_tiles}|
+                 {k:"MYSTERY_TILE" for k in mystery_tiles}|
+                 {k:"BASE_TILE" for k in base_tiles}
                  )
+
+special_tiles_pos = {k:p for lst in [rocket_tiles,fuel_tiles,mystery_tiles,base_tiles] for k,p in zip(lst,position_flags)}
 special_tiles_set = special_tiles
 
 special_tiles[0] = "EMPTY_TILE"
@@ -63,6 +73,7 @@ def process_maps():
     tile_id_png_dict = {}
     dumped_set = set()
     max_level = 6
+    objects = []
 
     filled_tile = Image.new("RGB",(tile_width,tile_height))
     for i in range(tile_width):
@@ -133,8 +144,16 @@ def process_maps():
                         print("dumping {}".format(outname))
                         ti.save(outname)
                     if dump_maps:
+                        tia = Image.new("RGBA",(tile_width,tile_height),ALPHA_TRANSPARENT)
+                        tia.paste(ti)
+                        # black => transparent for level 1,2,3 tiles
+                        if level_index < 4:
+                            for i in range(tia.size[0]):
+                                for j in range(tia.size[1]):
+                                    if tia.getpixel((i,j))[:3] == (0,0,0):
+                                        tia.putpixel((i,j),ALPHA_TRANSPARENT)
                         # save png image in id => image dict for map rebuild
-                        tile_id_png_dict[k] = ti
+                        tile_id_png_dict[k] = tia
 
                     outname = "{}/tile_{:02}.bin".format(sprites_dir,k)
 
@@ -157,9 +176,10 @@ def process_maps():
                 # re-dump maps as png (debug, check if all is okay)
                 screen_nb_tiles = 28
                 x = 0
-                level_dump = Image.new("RGB",(tile_width*(len(matrix)+screen_nb_tiles),200))
+                level_dump = Image.new("RGBA",(tile_width*(len(matrix)+screen_nb_tiles),200),(255,255,255,0))
                 ground_tile = tile_id_png_dict[10]  # id for ground tile is 10
-                y_ground = 200-5*tile_height
+                floor_height = 5 if level_index > 1 else 6
+                y_ground = 200-floor_height*tile_height
                 for i in range(screen_nb_tiles):
                     level_dump.paste(ground_tile,(x,y_ground))
                     # draw ground filler (not special filling tile in any case)
@@ -174,8 +194,14 @@ def process_maps():
                         else:
                             level_dump.paste(tile_id_png_dict[filler_tile_table[bool(x % 16)]],(x,y_fill))
 
+                def handle_tile():
+                    if not hide_enemies or tid not in special_tiles_set:
+                        level_dump.paste(tile_id_png_dict[tid],(x,y))
+                    if tid in special_tile_upper_corner:
+                        objects.append((x,y,special_tile_upper_corner[tid]))
 
-                for level,c in enumerate(matrix,1):
+
+                for c in matrix:
                     # for each x, number of ceiling tiles, y start, tile ids
                     upper,lower = c
                     y = 0
@@ -185,24 +211,28 @@ def process_maps():
                         # fill to y_start
                         fill_col(y,y_start)
                         y = y_start
-                        if not hide_enemies or tid not in special_tiles_set:
-                            level_dump.paste(tile_id_png_dict[tid],(x,y))
+                        handle_tile()
                         y += 8
 
                     for d in lower:
                         tid = d["tile_id"]
                         y_start = d["y"]
                         y = y_start
-                        if not hide_enemies or tid not in special_tiles_set:
-                            level_dump.paste(tile_id_png_dict[tid],(x,y))
+                        handle_tile()
                         y += 8
                     # fill to end
                     fill_col(y,200)
 
                     x += tile_width
 
-
                 level_dump.save("tiles/level_{:02}.png".format(level_index))
+        if dump_maps: # for scratch project
+            # save 3 lists, x,y,type
+            with open("tiles/x_list.txt","w") as fx, open("tiles/y_list.txt","w") as fy, open("tiles/type_list.txt","w") as ft:
+                for x,y,t in objects:
+                    fx.write("{}\n".format(x))
+                    fy.write("{}\n".format(y))
+                    ft.write("{}\n".format(t))
 
             f.write("\tdc.w\t-1\n") # end of level
         f.write("\tdc.w\t-2\n") # end of levels
@@ -211,13 +241,19 @@ def process_maps():
             f.write("tiles:\n")
             for i in range(tile_id):
                 f.write("\tincbin\ttile_{:02d}.bin\n".format(i))
-            f.write("\ntile_table:")
+            f.write("\ntile_type_table:")
 
             nb_tiles = tile_id
             for i in range(nb_tiles):
                 if i % 8 == 0:
                     f.write("\n\tdc.b\t")
-                f.write(special_tiles.get(i,"STANDARD_TILE"))
+                tk = special_tiles.get(i)
+                if tk:
+                    if i:
+                        tk += special_tiles_pos[i]
+                else:
+                    tk = "STANDARD_TILE"
+                f.write(tk)
                 if i % 8 != 7 and i != nb_tiles-1:
                     f.write(",")
             f.write("\n")
