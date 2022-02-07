@@ -43,14 +43,10 @@ CREDITS:
 
 ISSUES:
 
-- highscores 1ST and 2ND are missing
-- clear rockets, ships... on playfield scroll disaligned sometimes
-- hide stars in levels with ceiling (2,5)
-- ship explosion wrong animation 1 2 1 2 1 2 3
-- sound loop is wrong
-- wrong enemies erasures
-- start music: play on separate screen
-- wrong/missing colors on bombs/explosions (check ship which is correct)
+- sound loop clicks even if .wav loop is perfect
+- explosions trash the scrolling playfield sometimes
+- explosions: scrolling jitters like if bplcon was changed
+- start music: play on separate screen (player one get ready)
 
 TODO
 
@@ -61,6 +57,7 @@ TODO
 - ufos
 - asteroids
 - animated base
+- hide stars in levels with ceiling (2,5)
 
 BUILDING FROM SOURCES:
 

@@ -286,6 +286,7 @@ def process_tiles(json_file):
 
 
     for object in tiles["objects"]:
+
         if object.get("ignore"):
             continue
         generate_mask = object.get("generate_mask",False)
@@ -293,7 +294,8 @@ def process_tiles(json_file):
         blit_pad = object.get("blit_pad",True)
         gap = object.get("gap",0)
         name = object["name"]
-
+        if name != "bomb_1":
+            continue
         start_x = object["start_x"]+x_offset
         start_y = object["start_y"]+y_offset
         horizontal = object.get("horizontal",default_horizontal)

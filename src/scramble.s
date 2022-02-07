@@ -74,8 +74,6 @@ StartList = 38
 
 Execbase  = 4
 
-MODE_NORMAL = 0     ; police/cattle only. normal amidar movement
-MODE_KILL = 1<<2
 
 
 ; ******************** start test defines *********************************
@@ -93,7 +91,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 4
+;START_LEVEL = 5
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -160,6 +158,7 @@ X_SHIP_MIN=16	; min so we can see it fully
 X_SHIP_MAX=84
 Y_SHIP_MIN=28
 Y_SHIP_MAX=Y_MAX-16
+X_EXHAUST_WIDTH = 10	; 10 first pixels of ship don't trigger collision
 
 MAX_NB_BOMBS = 2
 MAX_NB_SHOTS = 4
@@ -2911,7 +2910,7 @@ check_collisions
 	; testing 2 tiles on ship only, let's see how it goes
 	; front
     move.w  xpos(a3),d2
-	addq.w	#8,d2	; skip exhaust
+	add.w	#X_EXHAUST_WIDTH,d2	; skip exhaust
     move.w  ypos(a3),d3
 	move.w	d2,d0
 	add.w	#16,d0	; front
@@ -2924,7 +2923,6 @@ check_collisions
 	move.w	d2,d0
 	move.w	d3,d1	; upper
 	sub.w	#6,d1
-    move.w  xpos(a3),d0	; back
 	bsr		get_tile_type
 	tst.b	(a0)
 	bne.b	player_killed
@@ -2973,7 +2971,9 @@ player_killed:
 	clr.w	player+frame
 	lea	player_killed_sound,a0
 	bsr	play_fx
+	rts
 .nomatch
+	move.w	#$F00,$DFF180
 	rts
 	
     
@@ -3152,6 +3152,7 @@ update_intro_screen
     even
 
 ship_explosion_table:
+	dc.l	ship_explosion_1,ship_explosion_2,ship_explosion_1,ship_explosion_2
 	dc.l	ship_explosion_1,ship_explosion_2,ship_explosion_3,ship_explosion_4
 	
 	; 4 frames per pointer
@@ -3165,7 +3166,7 @@ bomb_animation_table:
 	dc.l	bomb_5
 bomb_animation_table_end
 	
-explosion_animation_table
+explosion_animation_table_part_1
 	REPT	9
 	dc.l	explosion_1
 	ENDR
@@ -3178,6 +3179,7 @@ explosion_animation_table
 	REPT	9
 	dc.l	explosion_4
 	ENDR
+explosion_animation_table_part_2
 	; second part
 	REPT	9
 	dc.l	explosion_5
@@ -3270,7 +3272,7 @@ update_player
 	
 	move.w	frame(a4),d0
 	addq.w	#1,d0
-	cmp.w	#$40,d0
+	cmp.w	#$80,d0
 	bne.b	.no_reset
 	clr.w	d0
 .no_reset
@@ -3523,7 +3525,7 @@ create_shot
 	add.w	#4*8,d0
 	move.w	d0,xpos(a4)
 	move.w	ypos(a0),d0
-	add.w	#8,d0
+	add.w	#4,d0
 	move.w	d0,ypos(a4)
 	lea		shoot_sound,a0
 	bsr		play_fx
@@ -3590,7 +3592,7 @@ update_explosions:
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_update
-	bmi.b	.disable
+	bmi.b	.no_update		; wait for clear ack from draw
 	move.w	frame(a4),d0
 	addq.w	#4,d0
 	cmp.w	#9*16,d0
@@ -3616,9 +3618,7 @@ update_explosions:
 .stop
 	st.b	active(a4)	; last clear, no draw
 	bra.b	.no_update
-.disable
-	clr.b	active(a4)
-	bra.b	.no_update
+
 	
 
 update_shots:
@@ -3628,7 +3628,7 @@ update_shots:
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_update
-	bmi.b	.disable
+	bmi.b	.no_update
 	move.w	xpos(a4),d0
 	add.w	#SHOT_SPEED,d0
 	cmp.w	#X_MAX-8,d0
@@ -3636,7 +3636,6 @@ update_shots:
 	move.w	d0,xpos(a4)
 	; test if hitting something (scenery)
 	move.w	ypos(a4),d1
-	subq.w	#8,d1
 	bsr		get_tile_type
 	tst.b	(a0)
 	beq.b	.no_update
@@ -3651,9 +3650,7 @@ update_shots:
 .stop
 	st.b	active(a4)	; last clear, no draw
 	bra.b	.no_update
-.disable
-	clr.b	active(a4)
-	bra.b	.no_update
+
 		
 ; < A0: pointer on screen tile map
 ; (obviously contains non-zero tile)
@@ -3676,6 +3673,8 @@ something_was_hit
 	; now compute the x,y tile coords from a0
 	move.w	xpos(a4),d3
 	move.w	ypos(a4),d4
+	sub.w	scroll_shift(pc),d3		; take scroll shift into account
+	addq.w	#8,d3		; compensate...
 	; align on tile
 	and.w	#$F8,d3
 	and.w	#$F8,d4
@@ -3693,6 +3692,11 @@ something_was_hit
 	move.w	d3,d0
 	move.w	d4,d1
 	bsr		remove_object
+	; re-add scroll shift to center the explosion on the object
+	; (because explosion is not on the scrolling playfield)
+	add.w	scroll_shift(pc),d0
+	subq.w	#8,d0
+	addq.w	#4,d1
 	
 	; get rid of corners for now
 	and.b	#BOTH_CORNERS_MASK,d2
@@ -3731,6 +3735,7 @@ something_was_hit
 	bra.b	.object_shot
 .rocket_shot
 	; create an explosion for the object
+	
 	moveq.w	#1,d2
 	bsr		create_explosion
 
@@ -3798,10 +3803,10 @@ remove_object
 	move.w	#7,d4
 .cloop
 	; temp mark
-	st.b	(a1)
-	st.b	(1,a1)
-	st.b	(NB_BYTES_PER_SCROLL_SCREEN_LINE,a1)
-	st.b	(NB_BYTES_PER_SCROLL_SCREEN_LINE+1,a1)
+	clr.b	(a1)
+	clr.b	(1,a1)
+	clr.b	(NB_BYTES_PER_SCROLL_SCREEN_LINE,a1)
+	clr.b	(NB_BYTES_PER_SCROLL_SCREEN_LINE+1,a1)
 	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*2,a1
 	dbf		d4,.cloop
 	add.w	#SCROLL_PLANE_SIZE,a2
@@ -3848,6 +3853,14 @@ remove_object
 	
 	MUL_TABLE	7
 	
+; update bombs/explosions/shots routines set a negative active flag
+; when they're done. Then it's the drawing routine that clears that flag
+; it's done that way because drawing routine sometimes skips 1 frame (1 out of 6)
+; because updates are 60Hz and screen updates are 50Hz (PAL)
+;
+; doing everything from the update routines would leave one unerased object from
+; time to time
+
 update_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
 	lea		tile_type_table(pc),a1
@@ -3855,7 +3868,7 @@ update_bombs:
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_update
-	bmi.b	.disable
+	bmi.b	.no_update
 	addq.w	#1,frame(a4)	; no brainer add 1
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
@@ -3895,9 +3908,7 @@ update_bombs:
 .stop_bomb
 	st.b	active(a4)	; last clear, no draw
 	bra.b	.no_update
-.disable
-	clr.b	active(a4)
-	bra.b	.no_update
+
 	
 draw_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
@@ -3905,13 +3916,13 @@ draw_explosions:
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_draw
-	bmi.b	.erase
     lea screen_data,a1
-	lea	explosion_animation_table(pc),a0
+	bmi.b	.erase
+	lea	explosion_animation_table_part_1(pc),a0
 	move.w	frame(a4),d0
 	tst.w	explosion_type(a4)
 	beq.b	.okay
-	add.w	#9*4,d0	; second explosion type
+	add.w	#explosion_animation_table_part_2-explosion_animation_table_part_1,d0	; second explosion type
 .okay
 	move.l	(a0,d0.w),a0	; get proper frame
 .do_draw
@@ -3921,7 +3932,7 @@ draw_explosions:
     move.w d4,d1
     ; plane 0
     move.l  a1,a2
-    lea (BOB_16X16_PLANE_SIZE*2,a0),a3	; only 3 planes
+    lea (BOB_16X16_PLANE_SIZE*3,a0),a3	; only 3 planes
     bsr blit_16x16_plane_cookie_cut
     move.l  a1,previous_address(a4)
     ; plane 2 & 4
@@ -3940,6 +3951,8 @@ draw_explosions:
 	dbf		d7,.loop
 	rts
 .erase
+	; ack last draw message, disable explosion
+	clr.b	active(a4)
 	lea		empty_16x16_bob,a0
 	bra.b	.do_draw
 
@@ -3949,6 +3962,7 @@ draw_shots:
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_draw
+    lea screen_data,a1
 	; erase
 	move.l	previous_address(a4),d0
 	beq.b	.no_erase
@@ -3964,12 +3978,16 @@ draw_shots:
 	dbf		d3,.cloop
 .no_erase
 	tst.b	active(a4)
-	bmi.b	.no_draw
+	bpl.b	.draw
+	clr.b	active(a4)	; ack erase message
+	bra.b	.no_draw
+.draw
 	move.w	xpos(a4),d2
 	move.w	ypos(a4),d3
     lea screen_data,a1
 	move.l	d2,d0
 	move.l	d3,d1
+	addq.w	#4,d1	; draw slightly below
 	ADD_XY_TO_A1	a0
 	move.l	a1,previous_address(a4)
 	; A1 is the address, now check x to shift data
@@ -4002,7 +4020,7 @@ draw_bombs:
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_draw
-	bmi.b	.no_draw
+	bmi.b	.clear
     lea screen_data,a1
 	lea	bomb_animation_table(pc),a0
 	move.w	frame(a4),d0
@@ -4013,13 +4031,14 @@ draw_bombs:
 	move.w	#bomb_animation_table_end-bomb_animation_table-4,d0
 .okay
 	move.l	(a0,d0.w),a0	; get proper frame
+.draw
 	move.w	xpos(a4),d3
 	move.w	ypos(a4),d4
     move.w d3,d0
     move.w d4,d1
     ; plane 0
     move.l  a1,a2
-    lea (BOB_16X16_PLANE_SIZE*2,a0),a3	; only 3 planes
+    lea (BOB_16X16_PLANE_SIZE*3,a0),a3	; only 3 planes
     bsr blit_16x16_plane_cookie_cut
     move.l  a1,previous_address(a4)
     ; plane 2 & 4
@@ -4037,7 +4056,10 @@ draw_bombs:
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
 	rts
-
+.clear
+	clr.b	active(a4)
+	lea	 empty_16x16_bob,a0
+	bra.b	.draw
 	
 erase_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
@@ -4161,7 +4183,6 @@ draw_player:
     ; plane 2
     ; a3 is already computed from first cookie cut blit
     lea (BOB_32X16_PLANE_SIZE,a0),a0
-    move.l  a1,a6
     move.w d3,d0
     move.w d4,d1
 
@@ -4180,20 +4201,19 @@ draw_player:
 .no_erase4
     ; plane 2
     ; a3 is already computed from first cookie cut blit
-    move.l  a1,a6
     move.w d3,d0
     move.w d4,d1
 
-    bra blit_ship_cookie_cut
+    ;;bra blit_ship_cookie_cut
     
 blit_ship_cookie_cut
-    movem.l d2-d7/a2-a5,-(a7)
+    movem.l d2-d7/a2/a4/a5,-(a7)
     lea $DFF000,A5
 	moveq.l #-1,d3	;masking of first/last word    
     move.w  #6,d2       ; 32 pixels + 2 shift bytes
     move.w  #16,d4      ; 16 pixels height   
     bsr blit_plane_any_internal_cookie_cut
-    movem.l (a7)+,d2-d7/a2-a5
+    movem.l (a7)+,d2-d7/a2/a4/a5
 	rts
 	
 clear_ship_plane
@@ -4316,15 +4336,15 @@ get_tile_type:
 ; < A1: plane
 ; < D0: X
 ; < D1: Y
-; < D2: blit mask
+; < D2: blit mask (disabled in API)
 ; trashes: D0-D1
 ; returns: A1 as start of destination (A1 = orig A1+40*D1+D0/8)
 
-blit_plane
+blit_16x16_plane
     movem.l d2-d6/a2-a5,-(a7)
     lea $DFF000,A5
-	move.l d2,d3
-    move.w  #4,d2       ; 16 pixels + 2 shift bytes
+	moveq.l #-1,d3	; no need for a different partial mask
+    moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
     move.w  #16,d4      ; 16 pixels height
     bsr blit_plane_any_internal
     movem.l (a7)+,d2-d6/a2-a5
@@ -4343,14 +4363,14 @@ blit_plane
 ; returns: A1 as start of destination (A1 = orig A1+40*D1+(D0/16)*2)
 
 blit_16x16_plane_cookie_cut
-    movem.l d2-d7/a2-a5,-(a7)
+    movem.l d2-d7/a2/a4/a5,-(a7)
     lea $DFF000,A5
 	moveq.l #-1,d3	;masking of first/last word : no mask   
-    move.w  #4,d2       ; 16 pixels + 2 shift bytes
+    moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
     move.w  #16,d4      ; 16 pixels height   
     bsr blit_plane_any_internal_cookie_cut
 .okay
-    movem.l (a7)+,d2-d7/a2-a5
+    movem.l (a7)+,d2-d7/a2/a4/a5
     rts
     
     
@@ -4437,18 +4457,17 @@ blit_plane_any_internal:
 ; you feed your actual bob bitmap through channel B,
 ; and you feed your pristine background through channel C."
 
-; < A5: custom
 ; < D0.W,D1.W: x,y
 ; < A0: source
 ; < A1: destination
 ; < A2: background to mix with cookie cut
 ; < A3: source mask for cookie cut
+; < A5: custom
 ; < D2: width in bytes (inc. 2 extra for shifting)
 ; < D3: blit mask
 ; < D4: height
-; blit mask set
 ; returns: start of destination in A1 (computed from old A1+X,Y)
-; trashes: nothing
+; trashes: a2,a3,a4
 
 blit_plane_any_internal_cookie_cut:
     movem.l d0-d7,-(a7)
@@ -4526,31 +4545,6 @@ blit_plane_any_internal_cookie_cut:
     movem.l (a7)+,d0-d7
     rts
 
-
-; what: blits 16(32)x16 data on 4 planes (for bonuses), full mask
-; args:
-; < A0: data (16x16)
-; < D0: X
-; < D1: Y
-; trashes: D0-D1
-
-blit_4_planes
-    movem.l d2-d6/a0-a1/a5,-(a7)
-    lea $DFF000,A5
-    lea     screen_data,a1
-    moveq.l #3,d7
-.loop
-    movem.l d0-d1/a1,-(a7)
-    move.w  #4,d2       ; 16 pixels + 2 shift bytes
-    moveq.l #-1,d3  ; mask
-    move.w  #16,d4      ; height
-    bsr blit_plane_any_internal
-    movem.l (a7)+,d0-d1/a1
-    add.l   #SCREEN_PLANE_SIZE,a1
-    add.l   #64,a0      ; 32 but shifting!
-    dbf d7,.loop
-    movem.l (a7)+,d2-d6/a0-a1/a5
-    rts
     
 wait_blit
 	TST.B	$BFE001
@@ -5559,7 +5553,8 @@ end_stars_sprites_copperlist
 
 empty_16x16_bob
     ds.l    16*3,0
-	; full mask
+	; full mask (following bob or used alone to debug)
+full_mask
 	REPT	16
 	dc.l	-1
 	ENDR
