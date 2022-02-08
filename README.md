@@ -44,12 +44,11 @@ CREDITS:
 ISSUES:
 
 - sound loop clicks even if .wav loop is perfect
-- explosions trash the scrolling playfield sometimes
 - explosions: scrolling jitters like if bplcon was changed
-- start music: play on separate screen (player one get ready)
 
 TODO
 
+- start music: play on separate screen (player one get ready)
 - specific sound loops per levels
 - flying rockets
 - depleting fuel

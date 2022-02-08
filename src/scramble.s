@@ -173,6 +173,7 @@ ROCKET_TILE = 2
 FUEL_TILE = 3
 MYSTERY_TILE = 4
 BASE_TILE = 5
+FILLER_TILE = -1
 
 ; positions enumerates, allow to decode tile position in a composite object
 ; made of 4 tiles (rocket, fuel, ...)
@@ -3658,6 +3659,8 @@ update_shots:
 
 something_was_hit
 	move.b	(a0),d2
+	cmp.b	#FILLER_TILE,d2
+	beq.b	.scenery_shot	; sometimes bomb go through the surface
 	ext.w	d2
 	move.b	(a1,d2.w),d2
 	cmp.b	#STANDARD_TILE,d2
@@ -4018,10 +4021,10 @@ draw_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
 	lea	bombs(pc),a4
 .loop	
+    lea screen_data,a1
 	tst.b	active(a4)
 	beq.b	.no_draw
 	bmi.b	.clear
-    lea screen_data,a1
 	lea	bomb_animation_table(pc),a0
 	move.w	frame(a4),d0
 	and.b	#$FC,d0		; round on 4
@@ -4057,6 +4060,7 @@ draw_bombs:
 	dbf		d7,.loop
 	rts
 .clear
+	; last draw of that object, clears it
 	clr.b	active(a4)
 	lea	 empty_16x16_bob,a0
 	bra.b	.draw
@@ -4369,7 +4373,6 @@ blit_16x16_plane_cookie_cut
     moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
     move.w  #16,d4      ; 16 pixels height   
     bsr blit_plane_any_internal_cookie_cut
-.okay
     movem.l (a7)+,d2-d7/a2/a4/a5
     rts
     
