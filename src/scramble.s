@@ -1213,7 +1213,7 @@ PLAYER_ONE_Y = 102-14
 	IFD	SCROLL_DEBUG
 	bsr	draw_scroll_debug
 	ENDC
-	bsr	draw_score
+	;;bsr	draw_score
 	bsr	draw_scrolling_tiles
 	
 .after_draw
@@ -1270,7 +1270,7 @@ draw_tiles:
 	add.w	d5,a1		; add x offset
 
 	move.w	#16,d6	; current y
-	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d4	; we'll need this value A LOT
+	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,d4	; we'll need this value
 	move.w	(a6)+,d2	; number of vertical tiles to draw - upper part
 	beq.b	.lower
 	bpl.b	.okay
@@ -1312,15 +1312,15 @@ draw_tiles:
 	cmp.w	d1,d6
 	beq.b	.no_clear	; reached
 	REPT	8
-	clr.b	(a3)
-	clr.b	(a2)
-	add.w	d4,a3
-	add.w	d4,a2
+	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a3)
+	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a2)
 	ENDR
 	clr.b	(a5)
 	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 	addq.w	#8,d6
-	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
+	add.w	d4,a1
+	add.w	d4,a2
+	add.w	d4,a3
 	bra.b	.clear
 
 .no_clear
@@ -1348,15 +1348,15 @@ draw_tiles:
 	cmp.w	d7,d6
 	bcc.b	.fend
 	REPT	8
-	st.b	(a3)
-	clr.b	(a2)
-	add.w	d4,a3
-	add.w	d4,a2
+	st.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a3)
+	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a2)
 	ENDR
 	st.b	(a5)
 	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 	addq.w	#8,d6
-	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
+	add.w	d4,a1
+	add.w	d4,a2
+	add.w	d4,a3
 	bra.b	.fill
 .fend
 	rts
@@ -1385,15 +1385,15 @@ draw_tiles:
 
 	; copy both planes
 	REPT	8
-	move.b	(8,a0),(a3)
-	move.b	(a0)+,(a2)
-	add.w	d4,a2
-	add.w	d4,a3
+	move.b	(8,a0),(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a3)
+	move.b	(a0)+,(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a2)
 	ENDR
 	move.b	d0,(a5)
 	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 
-	add.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,a1
+	add.w	d4,a1
+	add.w	d4,a2
+	add.w	d4,a3
 	addq.w	#8,d6	; advance y
 	rts
 	
@@ -2781,8 +2781,8 @@ copy_tiles
 	lea		(a2,d0.w),a0	; source
 	lea		(-2,a2,d1.w),a1	; dest
 	; copy the whole column, aligned so can use word copy
-    moveq #NB_PLANES-1,d4
-	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d5
+    moveq #1,d4	; copy only 2 planes
+	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,d5
 	move.w	#SCROLL_PLANE_SIZE,d6
 .ploop
 	move.l	a0,a3
@@ -2790,11 +2790,10 @@ copy_tiles
 	move.w	#(Y_MAX-16)/8-1,d0
 .copy
 	REPT	8
-	move.w	(a3),(a4)
-	add.w	d5,a3
-	add.w	d5,a4
+	move.w	(NB_BYTES_PER_SCROLL_SCREEN_LINE*REPTN,a3),(NB_BYTES_PER_SCROLL_SCREEN_LINE*REPTN,a4)
 	ENDR
-	
+	add.w	d5,a3
+	add.w	d5,a4	
 	dbf	d0,.copy
 	add.w	d6,a0
 	add.w	d6,a1
@@ -2882,6 +2881,7 @@ update_scrolling
 	move.w	#15,d0
 	st.b	draw_tile_column_message
 	; scroll logical tile screen map
+	
 	lea	screen_tile_table,a0
 	move.w	#NB_LINES-1,d1
 .yloop
@@ -4902,14 +4902,9 @@ write_string:
 .wl
     lsl.w   #3,d2   ; *8
     add.w   d2,a2
-    move.b  (a2)+,(a1)
-    move.b  (a2)+,(NB_BYTES_PER_LINE,a1)
-    move.b  (a2)+,(NB_BYTES_PER_LINE*2,a1)
-    move.b  (a2)+,(NB_BYTES_PER_LINE*3,a1)
-    move.b  (a2)+,(NB_BYTES_PER_LINE*4,a1)
-    move.b  (a2)+,(NB_BYTES_PER_LINE*5,a1)
-    move.b  (a2)+,(NB_BYTES_PER_LINE*6,a1)
-    move.b  (a2)+,(NB_BYTES_PER_LINE*7,a1)
+	REPT	8
+    move.b  (a2)+,(NB_BYTES_PER_LINE*REPTN,a1)
+	ENDR
     bra.b   .next
 .special
     cmp.b   #' ',d2
