@@ -1906,6 +1906,7 @@ clear_plane_any_cpu_any_height
     dbf d0,.yloop2
     bra.b   .out
     
+
 ; what: clears a plane of any width (using blitter), 16 height
 ; args:
 ; < A1: dest
@@ -1922,7 +1923,6 @@ clear_plane_any_blitter:
     bsr clear_plane_any_blitter_internal
     movem.l (a7)+,d0-d6/a1/a5
     rts
-
 
 ;; C version
 ;;   UWORD minterm = 0xA;
@@ -4068,6 +4068,10 @@ draw_bombs:
 erase_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
 	lea	explosions(pc),a0
+	; 0 coords (we're using exact bitplane addresses)
+	clr.w	d0
+	clr.w	d1
+	moveq.w	#4,d2	; 4 bytes: blitter width 16 bits + 16 extra shift bits
 .loop
 	tst.b	active(a0)
 	beq.b	.no_erase
@@ -4085,16 +4089,22 @@ erase_explosions:
 	bclr	#0,d5		; align on even planes
 	add.w	d5,a1
 	
-	REPT	2
-	bsr.b	clear_16x16_plane
+	; first clear using the blitter
+	bsr.b	clear_plane_any_blitter
+	
+	; the use the CPU while the blitter is working
 	add.w	#SCREEN_PLANE_SIZE,a1
-	ENDR
-	bsr.b	clear_16x16_plane
+	bsr.b	clear_plane_any_cpu
+	
+	; then use the blitter again
+	add.w	#SCREEN_PLANE_SIZE,a1
+	bsr.b	clear_plane_any_blitter
 .no_erase
 	add.w	#GfxObject_SIZEOF,a0
 	dbf		d7,.loop
 	rts
 	
+
 	
 erase_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
@@ -4234,7 +4244,7 @@ clear_bomb_plane
 	rts
 	
 	
-clear_16x16_plane
+clear_16x16_plane_cpu
 	REPT	16
 	clr.l	(NB_BYTES_PER_LINE*REPTN,a1)
 	ENDR
