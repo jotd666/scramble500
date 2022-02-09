@@ -2800,13 +2800,15 @@ copy_tiles
 	dbf		d4,.ploop
 	rts
 	
+; draws zero or one tile column
+; each time we scroll by 8 pixels
+
 draw_scrolling_tiles
 	move.w	scroll_shift(pc),d0
 	lsl.w	#4,d0
 	move.w	d0,bplcon1+_custom
 	tst.b	draw_tile_column_message
 	beq.b	.no_new_tiles
-	clr.b	draw_tile_column_message
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
 	add.w	scroll_offset(pc),d0
 	move.l	map_pointer(pc),a6
@@ -2814,11 +2816,12 @@ draw_scrolling_tiles
 	; issue 2 tile columns at a time
 	
 	lea	screen_tile_table+NB_BYTES_PER_PLAYFIELD_LINE-2,a5
-	moveq.w	#1,d7
-.dtloop
-	bsr	draw_tiles
-	addq.w	#1,d0
+	cmp.b	#1,draw_tile_column_message
+	bne.b	.no_correct
 	addq.w	#1,a5
+	addq.w	#1,d0
+.no_correct
+	bsr	draw_tiles
 	tst.w	(a6)
 	bpl.b	.no_end
 	addq.w	#2,a6
@@ -2832,7 +2835,6 @@ draw_scrolling_tiles
 	addq.w	#1,level_number
 	st.b	next_level_flag
 .no_end
-	dbf		d7,.dtloop
 	move.l	a6,map_pointer
 	
 	; now we have to copy what we just created so when we
@@ -2841,12 +2843,14 @@ draw_scrolling_tiles
 	; continuity is here
 	tst.w	scroll_offset
 	beq.b	.no_copy
+	cmp.b	#1,draw_tile_column_message
+	bne.b	.no_copy
 	bsr	copy_tiles
 .no_copy
 	
 	; update screen pointer for playfield 2
 
-    moveq #NB_PLANES-1,d4
+    moveq #1,d4		; no need for the third plane. scrolling playfield only needs 2 planes
     lea	bitplanes,a0              ; copperlist address
     lea scroll_data,a1
 	add.w	scroll_offset(pc),a1
@@ -2868,6 +2872,9 @@ draw_scrolling_tiles
     move.w d2,(a0)+           ; 
     add.l #SCROLL_PLANE_SIZE,d2       ; next plane
     dbf d4,.mkcl
+	
+	; acknowledge draw tile message
+	clr.b	draw_tile_column_message
 
 .no_new_tiles	
 	rts
@@ -2877,9 +2884,16 @@ update_scrolling
 	move.w	scroll_shift(pc),d0
 	
 	subq.w	#1,d0
+	beq.b	.next_tile
+	cmp.w	#7,d0
 	bne.b	.no_next_tile
+	; mid tile: draw a tile
+	move.b	#1,draw_tile_column_message
+	bra.b	.no_next_tile
+.next_tile
 	move.w	#15,d0
-	st.b	draw_tile_column_message
+	; draw the other tile
+	move.b	#2,draw_tile_column_message
 	; scroll logical tile screen map
 	
 	lea	screen_tile_table,a0
