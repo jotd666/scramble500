@@ -44,7 +44,6 @@ CREDITS:
 ISSUES:
 
 - sound loop clicks even if .wav loop is perfect
-- explosions: scrolling jitters like if bplcon was changed
 
 TODO
 
@@ -57,6 +56,7 @@ TODO
 - asteroids
 - animated base
 - hide stars in levels with ceiling (2,5)
+- music as .mod
 
 BUILDING FROM SOURCES:
 

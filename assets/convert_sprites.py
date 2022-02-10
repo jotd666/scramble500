@@ -294,8 +294,7 @@ def process_tiles(json_file):
         blit_pad = object.get("blit_pad",True)
         gap = object.get("gap",0)
         name = object["name"]
-        if name != "bomb_1":
-            continue
+
         start_x = object["start_x"]+x_offset
         start_y = object["start_y"]+y_offset
         horizontal = object.get("horizontal",default_horizontal)
@@ -429,7 +428,7 @@ def process_fonts(dump=False):
             img_x = x_size+16 if x_size%16==0 else x_size
             img = Image.new("RGB",(img_x,cropped_img.size[1]))
             img.paste(cropped_img)
-            # if 1 plane, pacman frames, save only 1 plane, else save all 4 planes
+
             used_palette = p
 
             namei = "{}_{}".format(name,i) if nb_frames != 1 else name
@@ -438,10 +437,10 @@ def process_fonts(dump=False):
 process_maps()
 
 
-#process_tiles("tiles_gray.json")
+process_tiles("tiles_gray.json")
 # 8 colors of ship & objects playfield
 game_palette = process_tiles("tiles_color.json")
 bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
 
 
-#process_fonts(dump_fonts)
+process_fonts(dump_fonts)

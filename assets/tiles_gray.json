@@ -31,21 +31,6 @@
 
  "start_x":37,
  "start_y":133
- },
- {"name":"score_100",
-
- "start_x":73,
- "start_y":97
- },
- {"name":"score_200",
-
- "start_x":73,
- "start_y":115
- },
- {"name":"score_300",
-
- "start_x":73,
- "start_y":133
  }
  
  ]

@@ -65,6 +65,7 @@ INTERRUPTS_ON_MASK = $E038
 nb_explosion_cycles = custom_field_1    
 explosion_type = custom_field_2
 move_index = custom_field_1
+mystery_sprite = custom_field_1  ; also uses field_2 space as it's long
     ;Exec Library Base Offsets
 
 
@@ -163,6 +164,7 @@ X_EXHAUST_WIDTH = 10	; 10 first pixels of ship don't trigger collision
 MAX_NB_BOMBS = 2
 MAX_NB_SHOTS = 4
 MAX_NB_EXPLOSIONS = 16
+MAX_NB_SCORES = 6
 
 SHOT_SPEED = 4
 
@@ -519,6 +521,9 @@ intro:
 	bsr	free_all_slots
 	lea	explosions,a4
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
+	bsr	free_all_slots
+	lea	mystery_scores,a4
+	move.w	#MAX_NB_SCORES-1,d7
 	bsr	free_all_slots
 	
     bsr wait_bof
@@ -1212,11 +1217,13 @@ PLAYER_ONE_Y = 102-14
 	bsr		draw_current_level
 .same_level
 	bsr	erase_bombs
+	bsr	erase_mystery_scores
 	bsr	erase_explosions
     bsr draw_player
 	bsr	draw_bombs
 	bsr	draw_shots
 	bsr	draw_explosions
+	bsr	draw_mystery_scores
 	bsr	draw_score
 .skip_draw
 	IFD	SCROLL_DEBUG
@@ -1417,8 +1424,10 @@ draw_high_score
 
     
 ; < D0: score (/10)
-; trashes: D0,D1
+; trashes: nothing
+
 add_to_score:
+	move.l	d1,-(a7)
 	tst.b	demo_mode
 	bne.b	.below
     move.l  score(pc),previous_score
@@ -1438,6 +1447,7 @@ add_to_score:
     move.w  #MSG_SHOW,extra_life_message
     addq.b   #1,nb_lives
 .below
+	move.l	(a7)+,d1
     rts
     
 random:
@@ -2741,6 +2751,7 @@ update_all
 	bsr	update_shots
 	bsr	update_bombs
 	bsr	update_explosions
+	bsr	update_mystery_scores
 	
     bsr update_player
     tst.w   player_killed_timer
@@ -3565,6 +3576,26 @@ create_shot
 	rts
 
 ; < D0/D1: coords
+; < D2: bob score to display
+create_mystery_score
+	movem.l	a4/d7,-(a7)
+	; find free slot
+	move.w	#MAX_NB_SCORES-1,d7
+	lea	mystery_scores(pc),a4
+	bsr	find_slot
+	tst.w	d7
+	bmi.b	.out
+	; set the coords
+	move.w	d0,xpos(a4)
+	move.w	d1,ypos(a4)
+	move.l	d2,mystery_sprite(a4)
+.out
+	movem.l	(a7)+,a4/d7
+	rts
+
+	
+	
+; < D0/D1: coords
 ; < D2: 0 if explosion 1, != 0 explosion 2
 create_explosion
 	movem.l	a4/d7,-(a7)
@@ -3617,6 +3648,32 @@ find_slot:
 .out
 	rts
 	
+update_mystery_scores:
+	move.w	#MAX_NB_SCORES-1,d7
+	lea	mystery_scores(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_update
+	bmi.b	.no_update		; wait for clear ack from draw
+
+    tst.w   player_killed_timer
+    bpl.b   .no_update     ; player killed no scroll
+	tst.b	scroll_stop_flag
+	bne.b	.no_update
+	move.w	xpos(a4),d0
+	subq.w	#1,d0
+	bmi.b	.stop	; out of scroll
+	move.w	d0,xpos(a4)
+.no_update
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	rts
+	
+.stop
+	st.b	active(a4)	; last clear, no draw
+	bra.b	.no_update
+
+
 update_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
 	lea	explosions(pc),a4
@@ -3730,7 +3787,8 @@ something_was_hit
 	add.w	scroll_shift(pc),d0
 	subq.w	#8,d0
 	addq.w	#4,d1
-	
+	move.w	d0,d3
+	move.w	d1,d4
 	; get rid of corners for now
 	and.b	#BOTH_CORNERS_MASK,d2
 	cmp.b	#ROCKET_TILE,d2
@@ -3742,7 +3800,6 @@ something_was_hit
 	blitz	; todo base
 	bra.b	.object_shot
 .mystery_shot
-	; TODO score 100, 200, 300 displayed
 	; random scoring, original games awards:
 	; 100 2 out of 4 times
 	; 200 3 out of 4 times
@@ -3750,11 +3807,22 @@ something_was_hit
 	bsr		random
 	and.w	#3,d0
 	move.w	d0,d1
-	add.w	d0,d0
-	add.w	d0,d0
+	add.w	d1,d1
+	add.w	d1,d1
+
 	lea		.mystery_score(pc),a1
-	move.l	(a1,d0.w),d0
+	move.l	(a1,d1.w),d0
 	bsr		add_to_score
+	lea		mystery_sprite_table(pc),a1
+	
+	move.l	(a1,d1.w),d2
+	move.w	d3,d0
+	move.w	d4,d1
+	; re-center it
+	addq.w	#2,d1
+	subq.w	#2,d0
+	bsr		create_mystery_score
+	
 	bra.b	.object_shot
 .fuel_shot
 	; create an explosion for the object
@@ -3776,8 +3844,6 @@ something_was_hit
 	bsr		add_to_score
 	lea		rocket_explodes_sound,a0
 	bsr		play_fx
-;	moveq	#1,d2
-;	bsr		create_explosion
 .scenery_shot
 
 	rts
@@ -3847,45 +3913,6 @@ remove_object
 	rts
 	
 	
-	
-	
-	
-	lea		screen_tile_table,a1
-	sub.l	a0,a1
-	move.l	a1,d0
-	move.l	d0,d1	; keep original value
-	; divide by 28 without DIVU (ouch :)
-	lsr.l	#2,d0	; divide by 4
-	; now we just need a 7-division table
-	lea		.divide_7_table(pc),a0
-	move.b	(a0,d0.w),d3	; result of division yields y
-	ext.w	d3
-	; now compute x
-	move.w	d3,d2
-	add.w	d2,d2
-	; now compute the logical scroll address
-	lea		mul7_table(pc),a0
-	move.w	(a0,d2.w),d2
-	add.w	d2,d2
-	add.w	d2,d2
-	; subtract d3 to d2 gives the remainder
-	move.w	d3,d1
-	lsl.w	#3,d1		; times 8 => y screen
-	sub.w	d2,d3
-	lsl.w	#3,d3
-	move.w	d3,d0		; x screen
-	
-	movem.l	(a7)+,d0-d3/a0-a1
-	rts
-
-.divide_7_table
-	REPT	40
-	dc.b	REPTN,REPTN,REPTN,REPTN,REPTN,REPTN,REPTN
-	ENDR
-	even
-	
-	MUL_TABLE	7
-	
 ; update bombs/explosions/shots routines set a negative active flag
 ; when they're done. Then it's the drawing routine that clears that flag
 ; it's done that way because drawing routine sometimes skips 1 frame (1 out of 6)
@@ -3943,6 +3970,47 @@ update_bombs:
 	bra.b	.no_update
 
 	
+draw_mystery_scores
+	move.w	#MAX_NB_SCORES-1,d7
+	lea	mystery_scores(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_draw
+    lea screen_data,a1
+	bmi.b	.erase
+	
+	move.l	mystery_sprite(a4),a0	; get proper frame
+.do_draw
+	move.w	xpos(a4),d3
+	move.w	ypos(a4),d4
+    move.w d3,d0
+    move.w d4,d1
+    ; plane 0
+    move.l  a1,a2
+    lea (BOB_16X16_PLANE_SIZE*3,a0),a3	; only 3 planes
+    bsr blit_16x16_plane_cookie_cut
+    move.l  a1,previous_address(a4)
+    ; plane 2 & 4
+    ; a3 is already computed from first cookie cut blit
+	REPT	2
+	lea	(SCREEN_PLANE_SIZE,a2),a1
+	move.l	a1,a2
+    lea (BOB_16X16_PLANE_SIZE,a0),a0
+    move.w d3,d0
+    move.w d4,d1
+    bsr blit_16x16_plane_cookie_cut
+	ENDR
+	
+.no_draw
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	rts
+.erase
+	; ack last draw message, disable explosion
+	clr.b	active(a4)
+	lea		empty_16x16_bob,a0
+	bra.b	.do_draw
+
 draw_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
 	lea	explosions(pc),a4
@@ -4139,6 +4207,34 @@ erase_explosions:
 erase_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
 	lea	bombs(pc),a0
+.loop
+	tst.b	active(a0)
+	beq.b	.no_erase
+    move.l  previous_address(a0),d5
+    bne.b   .not_first_draw
+    moveq.l #-1,d5
+	bra.b	.no_erase
+.not_first_draw
+    ; first, restore plane 0
+    ; erase plane 0
+    lea screen_data,a1
+    sub.l   a1,d5       ; d5 is now the offset
+	bclr	#0,d5
+	add.w	d5,a1
+	REPT	2
+	bsr.b	clear_bomb_plane
+	add.w	#SCREEN_PLANE_SIZE,a1
+	ENDR
+	bsr.b	clear_bomb_plane
+.no_erase
+	add.w	#GfxObject_SIZEOF,a0
+	dbf		d7,.loop
+	rts
+
+	
+erase_mystery_scores:
+	move.w	#MAX_NB_SCORES-1,d7
+	lea	mystery_scores(pc),a0
 .loop
 	tst.b	active(a0)
 	beq.b	.no_erase
@@ -5220,7 +5316,9 @@ bonus_score_display_message:
 extra_life_message:
     dc.w    0
 
-    
+mystery_sprite_table:
+	dc.l	score_100,score_100,score_200,score_300
+		
 player_kill_anim_table:
     REPT    ORIGINAL_TICKS_PER_SEC/2
     dc.b    0
@@ -5477,6 +5575,8 @@ shots:
 	ds.b	GfxObject_SIZEOF*MAX_NB_SHOTS
 explosions:
 	ds.b	GfxObject_SIZEOF*MAX_NB_EXPLOSIONS
+mystery_scores:
+	ds.b	GfxObject_SIZEOF*MAX_NB_SCORES
 
 
     
@@ -5626,6 +5726,13 @@ bomb_4:
 	incbin	"bomb_4.bin"
 bomb_5:
 	incbin	"bomb_5.bin"
+	
+score_100
+	incbin	"score_100.bin"
+score_200
+	incbin	"score_200.bin"
+score_300
+	incbin	"score_300.bin"
 	
 ship_explosion_1:
 	incbin	"ship_explosion_1.bin"

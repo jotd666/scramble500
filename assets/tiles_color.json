@@ -238,6 +238,22 @@
 "start_y":71,
 "width":16,
 "height":64
-}
+},
+ {"name":"score_100",
+ "generate_mask":true,
+ "start_x":73,
+ "start_y":97
+ },
+ {"name":"score_200",
+ "generate_mask":true,
+
+ "start_x":73,
+ "start_y":115
+ },
+ {"name":"score_300",
+ "generate_mask":true,
+ "start_x":73,
+ "start_y":133
+ }
  ]
 }
