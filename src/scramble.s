@@ -1199,22 +1199,29 @@ PLAYER_ONE_Y = 102-14
     
     bra.b   .draw_complete
 .playing
+	; main game draw
+	; draw/update scrolling must absolutely
+	; be done first thing, else we can experience
+	; a lot of scrolling flicker
+	;
+	; not so important on explosions and score
+	bsr	draw_scrolling_tiles
+
 	tst.b	next_level_flag
 	beq.b	.same_level
 	bsr		draw_current_level
 .same_level
-	; main game draw
 	bsr	erase_bombs
 	bsr	erase_explosions
     bsr draw_player
 	bsr	draw_bombs
 	bsr	draw_shots
 	bsr	draw_explosions
+	bsr	draw_score
+.skip_draw
 	IFD	SCROLL_DEBUG
 	bsr	draw_scroll_debug
 	ENDC
-	;;bsr	draw_score
-	bsr	draw_scrolling_tiles
 	
 .after_draw
         
@@ -2837,16 +2844,6 @@ draw_scrolling_tiles
 .no_end
 	move.l	a6,map_pointer
 	
-	; now we have to copy what we just created so when we
-	; reach hard right with the tiles we just have to reset
-	; the bitplane pointers at the start and the illusion of
-	; continuity is here
-	tst.w	scroll_offset
-	beq.b	.no_copy
-	cmp.b	#1,draw_tile_column_message
-	bne.b	.no_copy
-	bsr	copy_tiles
-.no_copy
 	
 	; update screen pointer for playfield 2
 
@@ -2881,6 +2878,25 @@ draw_scrolling_tiles
 	
 	
 update_scrolling
+	; now we have to copy what we just created so when we
+	; reach hard right with the tiles we just have to reset
+	; the bitplane pointers at the start and the illusion of
+	; continuity is here
+	;
+	; do that copy in the "update" part not the draw part as
+	; this isn't critical if it doesn't fit in the vertical display blank
+	; time, on the contrary better put it during game "computation"
+	tst.w	scroll_offset
+	beq.b	.no_copy
+	cmp.w	#2,scroll_shift
+	bne.b	.no_copy
+	; copy on shift 2 of scroll, so both tile columns
+	; are drawn, and it doesn't overload scroll 15 and scroll 8
+	; position computations.
+	bsr	copy_tiles
+.no_copy
+
+
 	move.w	scroll_shift(pc),d0
 	
 	subq.w	#1,d0
@@ -5163,6 +5179,8 @@ draw_tile_column_message
 	dc.b	0
 nb_lives:
     dc.b    0
+draw_toggle_flag
+	dc.b	0
 game_completed_flag
 	dc.b	0
 new_life_restart:
