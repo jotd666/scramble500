@@ -35,6 +35,7 @@ CREDITS:
 
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
 - hajodick (EAB): game map rips from the arcade
+- Andrzej Dobrowolski (aka no9): technical advice on sfx
 - Frank Wille (aka phx): sfx/module player
 - meynaf: random routine
 - eab forum: useful advice & support

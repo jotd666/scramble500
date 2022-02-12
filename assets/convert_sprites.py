@@ -245,6 +245,10 @@ def process_maps():
             f.write("tiles:\n")
             for i in range(tile_id):
                 f.write("\tincbin\ttile_{:02d}.bin\n".format(i))
+            f.write("""
+; provide direct top left rocket id
+ROCKET_TOP_LEFT_TILEID = {}
+""".format(rocket_tiles[0]))
             f.write("\ntile_type_table:")
 
             nb_tiles = tile_id

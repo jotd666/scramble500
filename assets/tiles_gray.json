@@ -8,12 +8,10 @@
  "horizontal" : true,
  "objects":[
  {"name":"rocket_1",
-     "generate_mask":true,
  "start_x":1,
  "start_y":115
  },
 {"name":"rocket_2",
-     "generate_mask":true,
  "start_x":1,
  "start_y":133
  },
@@ -30,6 +28,19 @@
  {"name":"boss_3",
 
  "start_x":37,
+ "start_y":133
+ },
+ {"name":"score_100",
+ "generate_mask":true,
+ "start_x":73,
+ "start_y":97
+ },
+ {"name":"score_200",
+ "start_x":73,
+ "start_y":115
+ },
+ {"name":"score_300",
+ "start_x":73,
  "start_y":133
  }
  

@@ -57,15 +57,16 @@ INTERRUPTS_ON_MASK = $E038
     
 	STRUCTURE	GfxObject,0
 	STRUCT      BaseCharacter2,Character_SIZEOF
-	UWORD	custom_field_1
-	UWORD	custom_field_2
+	ULONG	custom_field_1
+	ULONG	custom_field_2
     LABEL   GfxObject_SIZEOF
     
 ; aliases for different kind of objects
 nb_explosion_cycles = custom_field_1    
 explosion_type = custom_field_2
 move_index = custom_field_1
-mystery_sprite = custom_field_1  ; also uses field_2 space as it's long
+mystery_sprite = custom_field_1
+plane_address = custom_field_2
     ;Exec Library Base Offsets
 
 
@@ -156,6 +157,7 @@ NB_PLANES   = 3
 X_MAX=240
 Y_MAX=228
 X_SHIP_MIN=16	; min so we can see it fully
+X_MIN=X_SHIP_MIN
 X_SHIP_MAX=84
 Y_SHIP_MIN=28
 Y_SHIP_MAX=Y_MAX-16
@@ -164,7 +166,8 @@ X_EXHAUST_WIDTH = 10	; 10 first pixels of ship don't trigger collision
 MAX_NB_BOMBS = 2
 MAX_NB_SHOTS = 4
 MAX_NB_EXPLOSIONS = 16
-MAX_NB_SCORES = 6
+MAX_NB_SCORES = 5
+MAX_NB_FLYING_ROCKETS = 4
 
 SHOT_SPEED = 4
 
@@ -512,19 +515,7 @@ intro:
     bsr init_enemies
     bsr init_player
     
-	; just in case remove all pending objects
-	lea	bombs,a4
-	move.w	#MAX_NB_BOMBS-1,d7
-	bsr	free_all_slots
-	lea	shots,a4
-	move.w	#MAX_NB_SHOTS-1,d7
-	bsr	free_all_slots
-	lea	explosions,a4
-	move.w	#MAX_NB_EXPLOSIONS-1,d7
-	bsr	free_all_slots
-	lea	mystery_scores,a4
-	move.w	#MAX_NB_SCORES-1,d7
-	bsr	free_all_slots
+
 	
     bsr wait_bof
 
@@ -565,6 +556,8 @@ intro:
     bra.b   .mainloop
 .next_level
     add.w   #1,level_number
+	cmp.w	#3,level_number
+	seq		rockets_fly_flag
     bra.b   .new_level
 .life_lost
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -808,7 +801,8 @@ init_new_play:
 	bsr		load_palette		
 	
     clr.l   state_timer
- 
+	st.b	rockets_fly_flag
+	
     move.b  #START_NB_LIVES,nb_lives
     clr.b   new_life_restart
     clr.b   extra_life_awarded
@@ -980,11 +974,34 @@ store_sprite_copperlist
 
 		
 init_enemies
-    move.b  d0,d4
+    ; empty pools
+	; just in case remove all pending objects
+	lea	bombs,a4
+	move.w	#MAX_NB_BOMBS-1,d7
+	bsr	free_all_slots
+	lea	shots,a4
+	move.w	#MAX_NB_SHOTS-1,d7
+	bsr	free_all_slots
+	lea	explosions,a4
+	move.w	#MAX_NB_EXPLOSIONS-1,d7
+	bsr	free_all_slots
+	lea	mystery_scores,a4
+	move.w	#MAX_NB_SCORES-1,d7
+	bsr	free_all_slots	
 	
+	lea	flying_rockets,a4
+	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
+	bsr	free_all_slots
 
-
+	clr.b	rocket_cyclic_counter
     
+	; clear rocket heights
+	lea	screen_ground_rocket_table,a0
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d0
+.c
+	clr.w	(a0)+
+	dbf	d0,.c
+	
     rts
 
 
@@ -1223,7 +1240,7 @@ PLAYER_ONE_Y = 102-14
 	bsr	draw_bombs
 	bsr	draw_shots
 	bsr	draw_explosions
-	bsr	draw_mystery_scores
+	bsr	draw_flying_rockets
 	bsr	draw_score
 .skip_draw
 	IFD	SCROLL_DEBUG
@@ -1272,13 +1289,15 @@ stop_sounds
     bra _mt_end
 
 
-; < A5: pointer on column to update in screen tilemap
+; < A4: pointer on cell to update in screen rocket scroll list
+; < A5: pointer on column to update in screen scroll tilemap
 ; < A6: map pointer
 ; < D0: x/y offset in bytes
 ; > A6: new map pointer
 draw_tiles:
 	movem.l	d0-d7/A0-A5,-(a7)
-	lea		tiles,a4
+	lea		tiles,a0
+	clr.w	(a4)	; zero coord: no rocket in the column by default	
 	move.w	d0,d5	; save X-offset for later on
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a1	; 2nd playfield
 	add.w	d5,a1		; add x offset
@@ -1341,6 +1360,14 @@ draw_tiles:
 	
 .lowerloop:
 	move.w	(a6)+,d0	; tile id
+	tst.b	rockets_fly_flag
+	beq.b	.no_rocket
+	; check if not rocket top/left
+	cmp.b	#ROCKET_TOP_LEFT_TILEID,d0
+	bne.b	.no_rocket
+	; store rocket position
+	move.w	d6,(a4)
+.no_rocket
 	bsr		.copy_tile
 
 	dbf		d2,.lowerloop
@@ -1390,8 +1417,9 @@ draw_tiles:
 	bra.b	.fill_with_tile_loop
 	
 .copy_tile
+	move.l	a0,-(a7)
 	lsl.w	#4,d0
-	lea		(a4,d0.w),a0	; graphics
+	lea		(a0,d0.w),a0	; graphics
 	lsr.w	#4,d0
 	; cpu copy
 	move.l	a1,a2						; first dest plane
@@ -1409,6 +1437,7 @@ draw_tiles:
 	add.w	d4,a2
 	add.w	d4,a3
 	addq.w	#8,d6	; advance y
+	move.l	(a7)+,a0
 	rts
 	
 	
@@ -2215,6 +2244,9 @@ draw_ground:
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
 	lea		ground_table(pc),a6
 	lea		screen_tile_table,a5
+	; draw_tiles will write zero to (a4)
+	; as there is only ground, but we still need this address to be valid	
+	lea		screen_ground_rocket_table,a4
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
@@ -2386,7 +2418,7 @@ saved_intena
 ; F6: 
 ; F8: 
 ; F9: 
-; left-shift: fast-forward (no player controls during that)
+; TAB: fast-forward (no player controls during that)
 
 level2_interrupt:
 	movem.l	D0/A0/A5,-(a7)
@@ -2578,11 +2610,11 @@ level3_interrupt:
     move.w  d0,vbl_counter
 	tst.w	cheat_keys
 	beq.b	.outcop
-	; check left shift
+	; check tab key
 	move.b	$BFEC01,d0
 	ror.b	#1,d0
 	not.b	d0
-	cmp.b	#$60,d0
+	cmp.b	#$42,d0
 	beq.b	.no_pause
 .outcop
 	; a5 has been used by update
@@ -2720,8 +2752,8 @@ update_all
     ; first level: play start music
     clr.b   .intro_music_played
     
-    lea     start_music_sound,a0
-    bsr play_fx
+	moveq	#0,d0
+    bsr.b	play_music
 
 .no_first_tick
     ; for demo mode
@@ -2740,18 +2772,20 @@ update_all
 	move.w	d0,playfield_palette_timer
 	
 	tst.w	loop_sound_delay
-	beq.b	.no_sound_loop_start
-	subq.w	#1,loop_sound_delay
-	bne.b	.no_sound_loop_start
-	; start sound loop, ATM level 1 loop
-	lea		level1_loop_sound,a0
-	bsr		play_loop_fx
-.no_sound_loop_start
+	;beq.b	.no_sound_loop_start
+	; TODO: play module but from the proper sound loop point
+;.no_sound_loop_start
 
 	bsr	update_shots
 	bsr	update_bombs
 	bsr	update_explosions
 	bsr	update_mystery_scores
+	
+	tst.b	rockets_fly_flag
+	beq.b	.inactive
+	; update rockets in stages 1 and 4
+	bsr	update_rockets
+.inactive
 	
     bsr update_player
     tst.w   player_killed_timer
@@ -2764,7 +2798,6 @@ update_all
  
     bsr check_collisions
 .skip_cc
-    bsr update_enemies
     
     tst.w   player_killed_timer
     bpl.b   .skip_a_lot
@@ -2832,10 +2865,11 @@ draw_scrolling_tiles
 	move.l	map_pointer(pc),a6
 	; tiles are 8 pixels wide. shift is 0-16 we have to
 	; issue 2 tile columns at a time
-	
+	lea		screen_ground_rocket_table+NB_BYTES_PER_PLAYFIELD_LINE*2-4,a4
 	lea	screen_tile_table+NB_BYTES_PER_PLAYFIELD_LINE-2,a5
 	cmp.b	#1,draw_tile_column_message
 	bne.b	.no_correct
+	addq.w	#2,a4
 	addq.w	#1,a5
 	addq.w	#1,d0
 .no_correct
@@ -2921,6 +2955,14 @@ update_scrolling
 	move.w	#15,d0
 	; draw the other tile
 	move.b	#2,draw_tile_column_message
+	; scroll logical rocket y map
+	lea	screen_ground_rocket_table,a0
+
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE/2-1,d2
+.lloop
+	move.l	(4,a0),(a0)+
+	dbf		d2,.lloop
+	
 	; scroll logical tile screen map
 	
 	lea	screen_tile_table,a0
@@ -2943,7 +2985,63 @@ update_scrolling
 	move.w	d0,scroll_shift
 	rts
 
-
+update_rockets
+	move.b	rocket_cyclic_counter(pc),d0
+	addq.b	#1,d0
+	move.b	d0,rocket_cyclic_counter
+	and.b	#$3F,d0
+	bne.b	.no_launch
+	; check if a rocket is ready to launch
+	;;flying_rockets
+	; see if there are rockets that we could launch that
+	; could hit the player ship
+	; original code ranges Y from $60 to $E8
+	; this is actually corresponding to reversed X, $E8 being the
+	; top left position of the screen, which leaves max X to 136 for us
+	lea	screen_ground_rocket_table,a2
+	move.l	a2,a1
+	move.w	#136/8-1,d2	; 17 slots to check
+.check
+	move.w	(a2)+,d1	; y of rocket
+	subq.w	#8,d1		; correction
+	beq.b	.no_rocket
+	move.l	a2,d0
+	; now we have to check if that rocket wasn't destroyed
+	sub.l	a1,d0	; convert to tile offset to make X
+	add.w	d0,d0
+	add.w	d0,d0	; times 4 to get proper X value
+	subq.w	#8,d0
+	move.w	d0,d3
+	move.w	d1,d4	; save for later
+	bsr		get_tile_type
+	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)
+	bne.b	.no_rocket	; rocket has been shot or launched
+	; there's a rocket to be launched
+	; remove y from list
+	clr.w	(-2,a2)
+	; launch a rocket
+	move.w	d3,d0
+	move.w	d4,d1
+	bsr		create_flying_rocket
+	tst.w	d7
+	bmi.b	.no_rocket	; no slot available
+	; success!
+	; remove object from playfield
+	move.w	d3,d0
+	move.w	d4,d1
+	bsr		remove_object
+	; remove_object returns the address of
+	; the object in the scroll field (first plane)
+	; store that in our newly created flying rocket as a starting drawing
+	; point
+	move.l	a0,plane_address(a4)
+	; and bail out
+	bra.b	.no_launch
+.no_rocket
+	dbf	d2,.check
+.no_launch
+	rts
+	
 		
 
 check_collisions
@@ -3272,9 +3370,6 @@ bomb_move_table
     dc.b  $80,$80      ; marker byte specifying "end of path"
 	even
 	
-update_enemies:
-    rts
-    
 
      
 animate_enemy
@@ -3552,6 +3647,24 @@ create_bomb:
 	movem.l	(a7)+,a4/d0/d7
 	rts
 	
+create_flying_rocket:
+	movem.l	a4/d0/d7,-(a7)
+	; check if there's a free slot, here first or second
+	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
+	lea	flying_rockets(pc),a4
+	bsr	find_slot
+	tst	d7
+	bmi.b	.no_fly	; no more slots
+.found_bomb_slot
+	; launch the bomb
+	clr.w	frame(a4)
+	; init bomb with ship position plus something
+	move.w	d0,xpos(a4)
+	move.w	d1,ypos(a4)
+.no_fly
+	movem.l	(a7)+,a4/d0/d7
+	rts
+	
 
 create_shot
 	movem.l	a4/d0/d7,-(a7)
@@ -3575,22 +3688,12 @@ create_shot
 	movem.l	(a7)+,a4/d0/d7
 	rts
 
-; < D0/D1: coords
 ; < D2: bob score to display
+; < A0: plane address where it is displayed
 create_mystery_score
-	movem.l	a4/d7,-(a7)
-	; find free slot
-	move.w	#MAX_NB_SCORES-1,d7
-	lea	mystery_scores(pc),a4
-	bsr	find_slot
-	tst.w	d7
-	bmi.b	.out
-	; set the coords
-	move.w	d0,xpos(a4)
-	move.w	d1,ypos(a4)
-	move.l	d2,mystery_sprite(a4)
-.out
-	movem.l	(a7)+,a4/d7
+	move.l	a0,a1
+	move.l	d2,a0
+	bsr		blit_16x16_scroll_object
 	rts
 
 	
@@ -3782,6 +3885,7 @@ something_was_hit
 	move.w	d3,d0
 	move.w	d4,d1
 	bsr		remove_object
+	; don't trash A0 as it may be used (mystery ship)
 	; re-add scroll shift to center the explosion on the object
 	; (because explosion is not on the scrolling playfield)
 	add.w	scroll_shift(pc),d0
@@ -3856,10 +3960,12 @@ something_was_hit
 ; < a0: logical pointer on top left logical object tile
 ; (in screen_tile_table)
 ; < D0/D1 coords in non scrolling playfield (pointed by screen_data)
+; > A0: first bitplane address of object in scrolling plane (warning: can be odd)
+; (note that mirror bitplane address must be computed)
 ; trashes: none
 
 remove_object
-	movem.l	d0-d3/a0-a3,-(a7)
+	movem.l	d0-d3/a1-a3,-(a7)
 	; now clear all 4 parts in logical tile table
 	; (easy as a0 is provided aligned on top/left table item)
 	clr.b	(a0)
@@ -3881,6 +3987,7 @@ remove_object
 	; add y offset
 	add.w	(a0,d1.w),a1
 	move.l	a1,a3		; save
+	move.l	a1,a0		; save to return it
 	bsr		.clear_rect
 	; now clear mirror rect (scrolling)
 	; for this we need to know the offset
@@ -3891,7 +3998,7 @@ remove_object
 .do
 	move.l	a3,a1
 	bsr		.clear_rect
-	movem.l	(a7)+,d0-d3/a0-a3	
+	movem.l	(a7)+,d0-d3/a1-a3	
 	rts
 	
 .clear_rect
@@ -3969,47 +4076,40 @@ update_bombs:
 	st.b	active(a4)	; last clear, no draw
 	bra.b	.no_update
 
-	
-draw_mystery_scores
-	move.w	#MAX_NB_SCORES-1,d7
-	lea	mystery_scores(pc),a4
+
+update_flying_rockets:
+	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
+	lea	flying_rockets(pc),a4
 .loop	
 	tst.b	active(a4)
-	beq.b	.no_draw
-    lea screen_data,a1
-	bmi.b	.erase
-	
-	move.l	mystery_sprite(a4),a0	; get proper frame
-.do_draw
-	move.w	xpos(a4),d3
-	move.w	ypos(a4),d4
-    move.w d3,d0
-    move.w d4,d1
-    ; plane 0
-    move.l  a1,a2
-    lea (BOB_16X16_PLANE_SIZE*3,a0),a3	; only 3 planes
-    bsr blit_16x16_plane_cookie_cut
-    move.l  a1,previous_address(a4)
-    ; plane 2 & 4
-    ; a3 is already computed from first cookie cut blit
-	REPT	2
-	lea	(SCREEN_PLANE_SIZE,a2),a1
-	move.l	a1,a2
-    lea (BOB_16X16_PLANE_SIZE,a0),a0
-    move.w d3,d0
-    move.w d4,d1
-    bsr blit_16x16_plane_cookie_cut
-	ENDR
-	
-.no_draw
+	beq.b 	.no_update
+	bmi.b	.no_update
+	addq.w	#1,frame(a4)
+	move.w	xpos(a4),d0
+	move.w	ypos(a4),d1
+	subq.w	#1,d1	; up
+	subq.w	#1,d0	; left
+	cmp.w	#Y_SHIP_MIN,d1
+	bcs.b	.stop_rocket
+	tst.b	scroll_stop_flag
+	bne.b	.no_scroll
+	cmp.w	#X_MIN,d0
+	bcs.b	.stop_rocket
+.no_scroll
+	move.w	d0,xpos(a4)
+	move.w	d1,ypos(a4)
+	sub.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,plane_address(a4)
+	; test if hitting player	
+
+.no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
 	rts
-.erase
-	; ack last draw message, disable explosion
-	clr.b	active(a4)
-	lea		empty_16x16_bob,a0
-	bra.b	.do_draw
+.stop_rocket
+	st.b	active(a4)	; last clear, no draw
+	bra.b	.no_update
+
+
 
 draw_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
@@ -4115,6 +4215,75 @@ draw_shots:
 	rts
 
 	
+draw_flying_rockets:
+	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
+	lea	flying_rockets(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_draw
+	bmi.b	.clear
+
+	move.w	frame(a4),d0
+	and.w	#$10,d0
+	lsr.w	#3,d0	; 0 or 2 each 16 frames
+.okay
+	lea		flying_rocket_sprite_table(pc),a0
+	move.l	(a0,d0.w),a0	; get proper frame
+.draw
+	move.l	plane_address(a4),a1
+	move.l	a1,previous_address(a4)	; save for later (erase)
+	bsr		blit_16x16_scroll_object
+	
+.no_draw
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	rts
+.clear
+	; last draw of that object, clears it
+	clr.b	active(a4)
+	lea	 empty_16x16_bob,a0
+	bra.b	.draw
+	
+erase_explosions:
+	move.w	#MAX_NB_EXPLOSIONS-1,d7
+	lea	explosions(pc),a0
+	; 0 coords (we're using exact bitplane addresses)
+	clr.w	d0
+	clr.w	d1
+	moveq.w	#4,d2	; 4 bytes: blitter width 16 bits + 16 extra shift bits
+.loop
+	tst.b	active(a0)
+	beq.b	.no_erase
+
+    move.l  previous_address(a0),d5
+    bne.b   .not_first_draw
+    moveq.l #-1,d5
+	bra.b	.no_erase
+.not_first_draw
+
+    ; first, restore plane 0
+    ; erase plane 0
+    lea screen_data,a1
+    sub.l   a1,d5       ; d5 is now the offset
+	bclr	#0,d5		; align on even planes
+	add.w	d5,a1
+	
+	; first clear using the blitter
+	bsr.b	clear_plane_any_blitter
+	
+	; the use the CPU while the blitter is working
+	add.w	#SCREEN_PLANE_SIZE,a1
+	bsr.b	clear_plane_any_cpu
+	
+	; then use the blitter again
+	add.w	#SCREEN_PLANE_SIZE,a1
+	bsr.b	clear_plane_any_blitter
+.no_erase
+	add.w	#GfxObject_SIZEOF,a0
+	dbf		d7,.loop
+	rts
+	
+
 draw_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
 	lea	bombs(pc),a4
@@ -4163,9 +4332,9 @@ draw_bombs:
 	lea	 empty_16x16_bob,a0
 	bra.b	.draw
 	
-erase_explosions:
-	move.w	#MAX_NB_EXPLOSIONS-1,d7
-	lea	explosions(pc),a0
+erase_flying_rockets:
+	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
+	lea	flying_rockets(pc),a0
 	; 0 coords (we're using exact bitplane addresses)
 	clr.w	d0
 	clr.w	d1
@@ -4180,23 +4349,7 @@ erase_explosions:
 	bra.b	.no_erase
 .not_first_draw
 
-    ; first, restore plane 0
-    ; erase plane 0
-    lea screen_data,a1
-    sub.l   a1,d5       ; d5 is now the offset
-	bclr	#0,d5		; align on even planes
-	add.w	d5,a1
-	
-	; first clear using the blitter
-	bsr.b	clear_plane_any_blitter
-	
-	; the use the CPU while the blitter is working
-	add.w	#SCREEN_PLANE_SIZE,a1
-	bsr.b	clear_plane_any_cpu
-	
-	; then use the blitter again
-	add.w	#SCREEN_PLANE_SIZE,a1
-	bsr.b	clear_plane_any_blitter
+
 .no_erase
 	add.w	#GfxObject_SIZEOF,a0
 	dbf		d7,.loop
@@ -4683,6 +4836,96 @@ blit_plane_any_internal_cookie_cut:
     
     movem.l (a7)+,d0-d7
     rts
+
+
+; what: blits 16x16 data 2 planes/2 locations, no shifting
+; args:
+; < A0: source (16x16)
+; < A1: destination (56 rows, assuming address is correct (no XY))
+; trashes: D0-D1
+
+
+blit_16x16_scroll_object
+    movem.l d2-d7/a2-a5,-(a7)
+    lea $DFF000,A5
+	move.l	a1,d1
+	moveq.l #-1,d3	;masking of first/last word : no mask   
+    moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
+    move.w  #16,d4      ; 16 pixels height   
+	
+
+    move.l  #$09f00000,d5    ;A->D copy, ascending mode
+	btst	#0,d1
+	beq.b	.no_shift
+	bclr	#0,d1
+	move.l	d1,a1	; even address
+	; 8 bit shift
+	or.l	#8<<12,d5
+.no_shift
+	move.l	a1,a2
+
+	move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE,d0
+    sub.w   d2,d0       ; blit width
+
+    lsl.w   #6,d4
+    lsr.w   #1,d2
+    add.w   d2,d4       ; blit height
+
+	; now we have 4 blits to perform
+	; 1 blit to a1 (and a1+SCROLL_PLANE_SIZE)
+	; 1 blit to a3 (and a3+SCROLL_PLANE_SIZE)
+	
+	
+    ; now just wait for blitter ready to write all registers
+	bsr	wait_blit
+    
+    ; blitter registers set
+    move.l  d3,bltafwm(a5)
+	move.l d5,bltcon0(a5)	
+	clr.w bltamod(a5)		;A modulo=bytes to skip between lines	
+    move.w  d0,bltdmod(a5)	;D modulo
+	
+	move.l a0,bltapt(a5)	;source graphic top left corner
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+
+	; let a2 point to graphics second plane
+	lea	(BOB_16X16_PLANE_SIZE,a0),a2
+
+	; now compute mirror rect (scrolling)
+	; for this we need to know the offset
+	sub.w	#NB_BYTES_PER_PLAYFIELD_LINE,a3
+	cmp.l	#scroll_data,a3
+	bcc.b	.do
+	add.w	#NB_BYTES_PER_PLAYFIELD_LINE*2,a3
+.do
+	
+	bsr	wait_blit
+
+	move.l a0,bltapt(a5)	;source graphic top left corner
+	move.l a3,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+
+	; now second plane
+	add.l	#SCROLL_PLANE_SIZE,a1
+	add.l	#SCROLL_PLANE_SIZE,a3
+	
+	bsr	wait_blit
+
+	move.l a2,bltapt(a5)	;source graphic top left corner
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+	
+	bsr	wait_blit
+
+	move.l a2,bltapt(a5)	;source graphic top left corner
+	move.l a3,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+	
+    movem.l (a7)+,d2-d7/a2-a5
+    rts
+    
+
 
     
 wait_blit
@@ -5275,7 +5518,9 @@ draw_tile_column_message
 	dc.b	0
 nb_lives:
     dc.b    0
-draw_toggle_flag
+rockets_fly_flag:
+	dc.b	0
+rocket_cyclic_counter
 	dc.b	0
 game_completed_flag
 	dc.b	0
@@ -5316,6 +5561,8 @@ bonus_score_display_message:
 extra_life_message:
     dc.w    0
 
+flying_rocket_sprite_table:
+	dc.l	flying_rocket_1,flying_rocket_2
 mystery_sprite_table:
 	dc.l	score_100,score_100,score_200,score_300
 		
@@ -5484,7 +5731,7 @@ ship_sprite_table
     
     
 ; < A0: sound struct
-play_fx
+play_fx:
     tst.b   demo_mode
     bne.b   .no_sound
     lea _custom,a6
@@ -5492,6 +5739,22 @@ play_fx
 .no_sound
     rts
     
+
+; < D0: track start number
+play_music:
+    movem.l d0-a6,-(a7)
+    lea _custom,a6
+    lea music,a0
+    sub.l   a1,a1
+    bsr _mt_init
+    ; set master volume a little less loud
+    move.w  #12,d0
+    bsr _mt_mastervol
+    bsr _mt_start
+    st.b    music_playing
+    movem.l (a7)+,d0-a6
+    rts
+	
 ; < D0: if != 0 don't change sky color at all
 next_playfield_palette:
 	move.w	playfield_palette_index(pc),d1
@@ -5540,10 +5803,8 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY player_killed,2,SOUNDFREQ,56
     SOUND_ENTRY rocket_explodes,3,SOUNDFREQ,40
     SOUND_ENTRY bomb_falling,2,SOUNDFREQ,17
-    SOUND_ENTRY start_music,0,SOUNDFREQ,31
     SOUND_ENTRY shoot,0,SOUNDFREQ,9
     SOUND_ENTRY bomb_hits_ground,2,SOUNDFREQ,64
-    SOUND_ENTRY level1_loop,1,SOUNDFREQ,18
 	
 	include	"blocks.s"
 
@@ -5577,6 +5838,8 @@ explosions:
 	ds.b	GfxObject_SIZEOF*MAX_NB_EXPLOSIONS
 mystery_scores:
 	ds.b	GfxObject_SIZEOF*MAX_NB_SCORES
+flying_rockets:
+	ds.b	GfxObject_SIZEOF*MAX_NB_FLYING_ROCKETS
 
 
     
@@ -5615,6 +5878,9 @@ record_input_table:
 screen_tile_table
 	ds.b	NB_LINES*NB_BYTES_PER_PLAYFIELD_LINE
     
+screen_ground_rocket_table
+	ds.w	NB_BYTES_PER_PLAYFIELD_LINE
+
     SECTION  S4,CODE
     include ptplayer.s
 
@@ -5727,6 +5993,11 @@ bomb_4:
 bomb_5:
 	incbin	"bomb_5.bin"
 	
+flying_rocket_1:
+	incbin	"rocket_1.bin"
+flying_rocket_2:
+	incbin	"rocket_2.bin"
+	
 score_100
 	incbin	"score_100.bin"
 score_200
@@ -5796,10 +6067,6 @@ bomb_falling_raw
     even
 bomb_falling_raw_end
 
-start_music_raw
-    incbin  "start_music.raw"
-    even
-start_music_raw_end
 
 shoot_raw
     incbin  "shoot.raw"
@@ -5810,10 +6077,7 @@ bomb_hits_ground_raw
     incbin  "bomb_hits_ground.raw"
     even
 bomb_hits_ground_raw_end
-level1_loop_raw
-    incbin  "level1_loop.raw"
-    even
-level1_loop_raw_end
+
 ; end sounds
 
 star_sprite:
@@ -5824,7 +6088,9 @@ star_sprite:
 empty_sprite
     dc.l    0,0
 
-    
+music
+	incbin	"scramble_intro.mod"
+	
     SECTION S_4,BSS,CHIP
     ; erase method erases one line above
     ; and character can be drawn at y=0 so add some memory
