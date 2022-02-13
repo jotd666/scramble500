@@ -11,7 +11,8 @@ source_dir = "../src"
 # to see what's being done or to create assets for Scratch game :)
 dump_tiles = False
 dump_fonts = False
-dump_maps = False
+dump_maps = True
+hide_enemies = False
 
 outdir = "tiles"
 
@@ -129,13 +130,13 @@ def process_maps():
                         if tinfo in filling_tiles:
                             is_filler = True
                         else:
+                            if not cidx and tinfo in special_tiles:
+                                # force category change
+                                # (level 5 tunnels without any blank space)
+                                cidx = 1
                             column[cidx].append({"tile_id":tinfo,"y":y,"x":x})
 
                 matrix.append(column)
-
-            # it's more convenient to reorder tiles so ground & fill tiles come first
-            # then rockets, ship & fuel (4 tiles per object) and base
-
 
             for k,(x,y) in tile_id_to_xy.items():
                 outname = "tiles/tile_{:02}.png".format(k)
@@ -175,7 +176,7 @@ def process_maps():
                     f.write("\n")
 
             if dump_maps:
-                hide_enemies = True
+
                 # re-dump maps as png (debug, check if all is okay)
                 screen_nb_tiles = 28
                 x = 0
@@ -227,6 +228,7 @@ def process_maps():
                     fill_col(y,200)
 
                     absolute_x += tile_width
+                    x += tile_width
 
                 level_dump.save("tiles/level_{:02}.png".format(level_index))
 

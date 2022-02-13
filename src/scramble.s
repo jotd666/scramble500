@@ -94,6 +94,7 @@ DIRECT_GAME_START
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
 ;START_LEVEL = 5
+;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -128,7 +129,9 @@ START_NB_LIVES = 3+1
 	IFND	START_LEVEL
 START_LEVEL = 1
 	ENDC
-
+	IFND	START_FUEL
+START_FUEL = 255
+	ENDC
 
 NB_RECORDED_MOVES = 100
 
@@ -533,7 +536,7 @@ intro:
     
 	bsr	draw_ground	
     bsr draw_lives
-    bsr draw_fuel
+    bsr draw_fuel_with_text
 	IFND	SCROLL_DEBUG
 	bsr	draw_level_map
 	bsr	draw_current_level
@@ -556,8 +559,9 @@ intro:
     bra.b   .mainloop
 .next_level
     add.w   #1,level_number
-	cmp.w	#3,level_number
-	seq		rockets_fly_flag
+	bsr		update_level_data
+	
+	
     bra.b   .new_level
 .life_lost
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -793,7 +797,24 @@ clear_scroll_plane
     movem.l (a7)+,d0/a1
     rts
 
+update_level_data
+	move.w	#10,d1
+	move.w	nb_missions_completed(pc),d0
+	beq.b	.store
+	subq.w	#2,d1
+	cmp.w	#1,d0
+	beq.b	.store
+	subq.w	#2,d1
+.store
+	move.b	d1,fuel_depletion_timer
+	
+	tst.w	level_number
+	beq.b	.rockets_fly
+	cmp.w	#3,level_number
+.rockets_fly
+	seq		rockets_fly_flag
 
+	rts
     
 init_new_play:
     lea objects_palette,a0
@@ -801,7 +822,8 @@ init_new_play:
 	bsr		load_palette		
 	
     clr.l   state_timer
-	st.b	rockets_fly_flag
+
+	clr.w	nb_missions_completed
 	
     move.b  #START_NB_LIVES,nb_lives
     clr.b   new_life_restart
@@ -810,6 +832,8 @@ init_new_play:
     move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
  
+	bsr		update_level_data
+	
     ; global init at game start
 	
 	tst.b	demo_mode
@@ -1013,8 +1037,10 @@ init_player:
 	add.w	#GfxObject_SIZEOF,a0
 	dbf	d0,.bombclr
 	
+	
     clr.w   death_frame_offset
-	move.w	#250,fuel
+	move.w	#1,low_fuel_sound_timer
+	move.w	#START_FUEL,fuel
     tst.b   new_life_restart
     bne.b   .no_clear
 .no_clear
@@ -1025,6 +1051,9 @@ init_player:
 	lea		level_tiles(pc),a0
 	move.l	(a0,d0.w),map_pointer
 	move.w	#15,scroll_shift
+
+	move.b	fuel_depletion_timer(pc),fuel_depetion_current_timer
+
 
 	clr.w	scroll_offset
 	clr.w	playfield_palette_index
@@ -1039,7 +1068,7 @@ init_player:
 	move.w	#60,ypos(a0)
     
 	
-    
+    clr.b	alive_timer
     move.w  #0,frame(a0)
 
     
@@ -1242,6 +1271,11 @@ PLAYER_ONE_Y = 102-14
 	bsr	draw_explosions
 	bsr	draw_flying_rockets
 	bsr	draw_score
+	tst.b	update_fuel_message
+	beq.b	.no_fuel_draw
+	bsr		draw_fuel
+	clr.b	update_fuel_message
+.no_fuel_draw
 .skip_draw
 	IFD	SCROLL_DEBUG
 	bsr	draw_scroll_debug
@@ -1451,7 +1485,19 @@ draw_high_score
     bra write_color_decimal_number
 
 
-    
+; < D0: fuel: positive or negative
+add_to_fuel:
+	move.l	d1,-(a7)
+	move.w	fuel(pc),d1
+	add.w	d0,d1
+	bmi.b	.skip
+	and.w	#$FF,d1	; clip to 255
+	move.w	d1,fuel
+	st.b	update_fuel_message
+.skip
+	move.l	(a7)+,d1
+	rts
+	
 ; < D0: score (/10)
 ; trashes: nothing
 
@@ -2114,12 +2160,13 @@ FUEL_OFFSET = Y_MAX*NB_BYTES_PER_LINE+8
     
 ; draw fuel text & full amount
 
-draw_fuel:
-	lea	.fuel_text(pc),a0
+draw_fuel_with_text:
+	lea	fuel_text(pc),a0
 	move.w	#24,d0
 	move.w	#Y_MAX,d1
 	move.w	#$EE0,d2
 	bsr		write_color_string
+draw_fuel:
 	moveq.w	#15,d6
 	move.w  fuel(pc),d7	
 	lsr.w	#1,d7	; only shows rounded value
@@ -2161,7 +2208,7 @@ draw_fuel:
 
 .out
 	rts
-.fuel_text
+fuel_text
 	dc.b	"FUEL",0
 	even
 LIVES_OFFSET = 236*NB_BYTES_PER_LINE
@@ -2786,7 +2833,7 @@ update_all
 	; update rockets in stages 1 and 4
 	bsr	update_rockets
 .inactive
-	
+	bsr	update_fuel_alarm
     bsr update_player
     tst.w   player_killed_timer
     bpl.b   .skip_cc     ; player killed, no collisions	
@@ -2821,6 +2868,21 @@ update_all
 start_music_countdown
     dc.w    0
 
+update_fuel_alarm
+	cmp.w	#80,fuel
+	bcc.b	.still_enough_fuel
+	subq.w	#1,low_fuel_sound_timer
+	bne.b	.no_sound
+	move.w	#ORIGINAL_TICKS_PER_SEC,low_fuel_sound_timer
+	lea	low_fuel_sound,a0
+	bsr	play_fx
+.no_sound
+	rts
+.still_enough_fuel
+	move.w	#1,low_fuel_sound_timer
+	rts
+	
+	
 copy_tiles
 	
 	; source offset
@@ -3423,8 +3485,27 @@ update_player
 .restart_level
 	move.w  #STATE_LIFE_LOST,current_state
 	rts
+
 	
 .alive
+	move.b	fuel_depetion_current_timer(pc),d0
+	subq.b	#1,d0
+	bne.b	.no_fuel_dec
+	move.w	#-1,d0
+	bsr		add_to_fuel
+	move.b	fuel_depletion_timer(pc),d0
+.no_fuel_dec
+	move.b	d0,fuel_depetion_current_timer
+	
+	move.b	alive_timer(pc),d0
+	addq.b	#1,d0
+	move.b	d0,alive_timer
+	and.b	#$3F,d0
+	bne.b	.no_points
+	; adding 10 points each 64 ticks just because player is alive
+	moveq.l	#1,d0
+	bsr		add_to_score
+.no_points
     bsr animate_player    
 
 
@@ -3494,8 +3575,12 @@ update_player
     move.w	xpos(a4),d2
     move.w	ypos(a4),d3
 
+	tst.w	fuel
+	beq.b	.force_move
+
     tst.l   d0
     beq.b   .no_move        ; nothing is currently pressed: optimize
+.force_move
 	move.l	previous_joy_input(pc),d1
     btst    #JPB_BTN_RED,d0
     beq.b   .no_fire
@@ -3509,6 +3594,12 @@ update_player
     bne.b   .no_bomb
 	bsr.b	create_bomb
 .no_bomb
+	tst.w	fuel
+	bne.b	.controllable
+    addq.w  #1,d3
+    bra.b   .out
+.controllable
+	; directions
     btst    #JPB_BTN_RIGHT,d0
     beq.b   .no_right
     addq.w  #1,d2
@@ -3523,10 +3614,11 @@ update_player
     subq.w  #1,d3
     bra.b   .out
 .no_up
+
     btst    #JPB_BTN_DOWN,d0
     beq.b   .no_down
     addq.w  #1,d3
-.no_down    
+.no_down
 .out
 .no_move
 	move.l	d0,previous_joy_input
@@ -3924,8 +4016,11 @@ something_was_hit
 	moveq.w	#1,d2
 	bsr		create_explosion
 
-	moveq.l	#10,d0		; ground rocket: 50 points
+	move.l	#15,d0		; fuel: 150 points
 	bsr		add_to_score
+	move.w	#48,d0
+	bsr		add_to_fuel
+	
 	lea		rocket_explodes_sound,a0
 	bsr		play_fx
 	bra.b	.object_shot
@@ -4965,6 +5060,8 @@ blit_16x16_scroll_object
 	
 	WAIT_BLITTER
 
+	; note: even if bltapt is the same between all blits, it MUST be set at each
+	; blit because blitter probably increases value internally
 	move.l a4,bltapt(a5)	;source graphic top left corner (mask, remains set for all 4 blits)
 	move.l a0,bltbpt(a5)	;source graphic top left corner
 	move.l a3,bltcpt(a5)	;pristine background
@@ -5580,14 +5677,25 @@ playfield_palette_timer
 	dc.w	0
 fuel:
 	dc.w	0
+low_fuel_sound_timer
+	dc.w	0
 loop_sound_delay
 	dc.w	0
-	
+nb_missions_completed
+	dc.w	0
 	
 draw_tile_column_message
 	dc.b	0
 nb_lives:
     dc.b    0
+fuel_depletion_timer
+	dc.b	0
+fuel_depetion_current_timer:
+	dc.b	0
+update_fuel_message:
+	dc.b	0
+alive_timer
+	dc.b	0
 rockets_fly_flag:
 	dc.b	0
 rocket_cyclic_counter

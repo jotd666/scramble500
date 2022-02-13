@@ -44,20 +44,18 @@ CREDITS:
 
 ISSUES:
 
-- sound loop clicks even if .wav loop is perfect
+- maybe vertical speed not enough (level 5)
+- bombing rockets (ground or flying) should just play high pitched explosion
 
 TODO
 
 - start music: play on separate screen (player one get ready)
 - specific sound loops per levels
 - flying rockets
-- depleting fuel
-- crash on low fuel
 - ufos
 - asteroids
 - animated base
 - hide stars in levels with ceiling (2,5)
-- music as .mod
 
 BUILDING FROM SOURCES:
 
