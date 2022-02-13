@@ -647,12 +647,12 @@ intro:
 	rts
     
 .normal_end
+    lea _custom,a5
     bsr     restore_interrupts
     bsr     wait_blit
     bsr     finalize_sound
     bsr     save_highscores
 
-    lea _custom,a5
     move.l  _gfxbase,a1
     move.l  gfxbase_copperlist,StartList(a1) ; adresse du début de la liste
     move.l  gfxbase_copperlist,cop1lc(a5) ; adresse du début de la liste
@@ -2372,6 +2372,7 @@ finalize_sound
     rts
     
 restore_interrupts:
+    lea _custom,a5
     ; assuming VBR at 0
     sub.l   a0,a0
     
@@ -2383,14 +2384,13 @@ restore_interrupts:
     move.l  (a1)+,($6C,a0)
 
 
-    lea _custom,a6
 
     move.w  saved_dmacon,d0
     bset    #15,d0
-    move.w  d0,(dmacon,a6)
+    move.w  d0,(dmacon,a5)
     move.w  saved_intena,d0
     bset    #15,d0
-    move.w  d0,(intena,a6)
+    move.w  d0,(intena,a5)
 
 
     rts
@@ -4587,6 +4587,14 @@ get_tile_type:
     dc.b    -1
     even
     
+; macro requires A5 to point on custom
+WAIT_BLITTER:MACRO
+	TST.B	$BFE001
+.wait\@
+	BTST	#6,(dmaconr,a5)
+	BNE.S	.wait\@
+	ENDM
+	
 ; what: blits 16x16 data on one plane
 ; args:
 ; < A0: data (16x16)
@@ -4695,7 +4703,7 @@ blit_plane_any_internal:
 
 
     ; now just wait for blitter ready to write all registers
-	bsr	wait_blit
+	WAIT_BLITTER
     
     ; blitter registers set
     move.l  d3,bltafwm(a5)
@@ -4780,7 +4788,7 @@ blit_plane_any_internal_cookie_cut:
     ; always the same settings (ATM)
 
     ; now just wait for blitter ready to write all registers
-	bsr	wait_blit
+	WAIT_BLITTER
     
     ; blitter registers set
 
@@ -4822,8 +4830,8 @@ blit_16x16_scroll_object_no_cookie_cut
 	beq.b	.no_shift
 	bclr	#0,d1
 	move.l	d1,a1	; even address
-	; 8 bit shift
-	or.l	#8<<12,d5
+	; 8 bit shift for source A
+	bset	#31,d5
 .no_shift
 	move.l	a1,a2
 
@@ -4840,7 +4848,7 @@ blit_16x16_scroll_object_no_cookie_cut
 	
 	
     ; now just wait for blitter ready to write all registers
-	bsr	wait_blit
+	WAIT_BLITTER
     
     ; blitter registers set
     move.l  d3,bltafwm(a5)
@@ -4855,6 +4863,7 @@ blit_16x16_scroll_object_no_cookie_cut
 	; let a2 point to graphics second plane
 	lea	(BOB_16X16_PLANE_SIZE,a0),a2
 
+	move.l	a1,a3
 	; now compute mirror rect (scrolling)
 	; for this we need to know the offset
 	sub.w	#NB_BYTES_PER_PLAYFIELD_LINE,a3
@@ -4863,7 +4872,7 @@ blit_16x16_scroll_object_no_cookie_cut
 	add.w	#NB_BYTES_PER_PLAYFIELD_LINE*2,a3
 .do
 	
-	bsr	wait_blit
+	WAIT_BLITTER
 
 	move.l a0,bltapt(a5)	;source graphic top left corner
 	move.l a3,bltdpt(a5)	;destination top left corner
@@ -4873,13 +4882,13 @@ blit_16x16_scroll_object_no_cookie_cut
 	add.l	#SCROLL_PLANE_SIZE,a1
 	add.l	#SCROLL_PLANE_SIZE,a3
 	
-	bsr	wait_blit
+	WAIT_BLITTER
 
 	move.l a2,bltapt(a5)	;source graphic top left corner
 	move.l a1,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
 	
-	bsr	wait_blit
+	WAIT_BLITTER
 
 	move.l a2,bltapt(a5)	;source graphic top left corner
 	move.l a3,bltdpt(a5)	;destination top left corner
@@ -4912,10 +4921,9 @@ blit_16x16_scroll_object
 	beq.b	.no_shift
 	bclr	#0,d1
 	move.l	d1,a1	; even address
-	; 8 bit shift
-	or.l	#8<<12,d5
+	; 8 bit shift for both A and B
+	or.l	#$80008000,d5
 .no_shift
-	move.l	a1,a2
 
 	move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE,d0
     sub.w   d2,d0       ; blit width
@@ -4930,7 +4938,7 @@ blit_16x16_scroll_object
 	
 	
     ; now just wait for blitter ready to write all registers
-	bsr	wait_blit
+	WAIT_BLITTER
     
     ; blitter registers set
     move.l  d3,bltafwm(a5)
@@ -4945,38 +4953,43 @@ blit_16x16_scroll_object
 	move.l a1,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
 
-	; let a2 point to graphics second plane
-	lea	(BOB_16X16_PLANE_SIZE,a0),a2
 
 	; now compute mirror rect (scrolling)
 	; for this we need to know the offset
+	move.l	a1,a3
 	sub.w	#NB_BYTES_PER_PLAYFIELD_LINE,a3
 	cmp.l	#scroll_data,a3
 	bcc.b	.do
 	add.w	#NB_BYTES_PER_PLAYFIELD_LINE*2,a3
 .do
 	
-	bsr	wait_blit
+	WAIT_BLITTER
 
+	move.l a4,bltapt(a5)	;source graphic top left corner (mask, remains set for all 4 blits)
 	move.l a0,bltbpt(a5)	;source graphic top left corner
 	move.l a3,bltcpt(a5)	;pristine background
 	move.l a3,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
 
 	; now second plane
-	add.l	#SCROLL_PLANE_SIZE,a1
-	add.l	#SCROLL_PLANE_SIZE,a3
-	
-	bsr	wait_blit
+	add.w	#SCROLL_PLANE_SIZE,a1
+	add.w	#SCROLL_PLANE_SIZE,a3
 
-	move.l a2,bltbpt(a5)	;source graphic top left corner
+	; let a0 point to graphics second plane
+	lea	(BOB_16X16_PLANE_SIZE,a0),a0
+	
+	WAIT_BLITTER
+
+	move.l a4,bltapt(a5)	;source graphic top left corner (mask, remains set for all 4 blits)
+	move.l a0,bltbpt(a5)	;source graphic top left corner
 	move.l a1,bltcpt(a5)	;pristine background
 	move.l a1,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
 	
-	bsr	wait_blit
+	WAIT_BLITTER
 
-	move.l a2,bltbpt(a5)	;source graphic top left corner
+	move.l a4,bltapt(a5)	;source graphic top left corner (mask, remains set for all 4 blits)
+	move.l a0,bltbpt(a5)	;source graphic top left corner
 	move.l a3,bltcpt(a5)	;pristine background
 	move.l a3,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
@@ -4985,12 +4998,10 @@ blit_16x16_scroll_object
     rts
     
 
-
-    
 wait_blit
 	TST.B	$BFE001
 .wait
-	BTST	#6,dmaconr+$DFF000
+	BTST	#6,_custom+dmaconr
 	BNE.S	.wait
 	rts
 
