@@ -7,9 +7,11 @@ tile_height = 8
 sprites_dir = "../sprites"
 source_dir = "../src"
 
+# debug options to get output as "modern" format (png/txt)
+# to see what's being done or to create assets for Scratch game :)
 dump_tiles = False
 dump_fonts = False
-dump_maps = True
+dump_maps = False
 
 outdir = "tiles"
 

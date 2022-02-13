@@ -1234,7 +1234,7 @@ PLAYER_ONE_Y = 102-14
 	bsr		draw_current_level
 .same_level
 	bsr	erase_bombs
-	bsr	erase_mystery_scores
+	bsr	erase_flying_rockets
 	bsr	erase_explosions
     bsr draw_player
 	bsr	draw_bombs
@@ -3015,6 +3015,8 @@ update_rockets
 	move.w	d1,d4	; save for later
 	bsr		get_tile_type
 	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)
+	bra.b	.no_rocket		; TEMP
+	
 	bne.b	.no_rocket	; rocket has been shot or launched
 	; there's a rocket to be launched
 	; remove y from list
@@ -3688,13 +3690,6 @@ create_shot
 	movem.l	(a7)+,a4/d0/d7
 	rts
 
-; < D2: bob score to display
-; < A0: plane address where it is displayed
-create_mystery_score
-	move.l	a0,a1
-	move.l	d2,a0
-	bsr		blit_16x16_scroll_object
-	rts
 
 	
 	
@@ -3919,13 +3914,9 @@ something_was_hit
 	bsr		add_to_score
 	lea		mystery_sprite_table(pc),a1
 	
-	move.l	(a1,d1.w),d2
-	move.w	d3,d0
-	move.w	d4,d1
-	; re-center it
-	addq.w	#2,d1
-	subq.w	#2,d0
-	bsr		create_mystery_score
+	move.l	(a1,d1.w),a1	; graphics
+	exg.l	a0,a1			; swap as A0 is source and A1 dest
+	bsr		blit_16x16_scroll_object
 	
 	bra.b	.object_shot
 .fuel_shot
@@ -4385,33 +4376,6 @@ erase_bombs:
 	rts
 
 	
-erase_mystery_scores:
-	move.w	#MAX_NB_SCORES-1,d7
-	lea	mystery_scores(pc),a0
-.loop
-	tst.b	active(a0)
-	beq.b	.no_erase
-    move.l  previous_address(a0),d5
-    bne.b   .not_first_draw
-    moveq.l #-1,d5
-	bra.b	.no_erase
-.not_first_draw
-    ; first, restore plane 0
-    ; erase plane 0
-    lea screen_data,a1
-    sub.l   a1,d5       ; d5 is now the offset
-	bclr	#0,d5
-	add.w	d5,a1
-	REPT	2
-	bsr.b	clear_bomb_plane
-	add.w	#SCREEN_PLANE_SIZE,a1
-	ENDR
-	bsr.b	clear_bomb_plane
-.no_erase
-	add.w	#GfxObject_SIZEOF,a0
-	dbf		d7,.loop
-	rts
-	
 ; draw player, dual playfield, skipping 2 planes each time
 
 draw_player:
@@ -4825,7 +4789,7 @@ blit_plane_any_internal_cookie_cut:
 	clr.w bltbmod(a5)		;A modulo=bytes to skip between lines
 	move.l d5,bltcon0(a5)	; sets con0 and con1
 
-    move.w  d0,bltcmod(a5)	;C modulo (maze width != screen width but we made it match)
+    move.w  d0,bltcmod(a5)	;C modulo
     move.w  d0,bltdmod(a5)	;D modulo
 
 	move.l a3,bltapt(a5)	;source graphic top left corner (mask)
@@ -4844,8 +4808,7 @@ blit_plane_any_internal_cookie_cut:
 ; < A1: destination (56 rows, assuming address is correct (no XY))
 ; trashes: D0-D1
 
-
-blit_16x16_scroll_object
+blit_16x16_scroll_object_no_cookie_cut
     movem.l d2-d7/a2-a5,-(a7)
     lea $DFF000,A5
 	move.l	a1,d1
@@ -4919,6 +4882,102 @@ blit_16x16_scroll_object
 	bsr	wait_blit
 
 	move.l a2,bltapt(a5)	;source graphic top left corner
+	move.l a3,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+	
+    movem.l (a7)+,d2-d7/a2-a5
+    rts
+    
+
+; what: blits 16x16 data 2 planes/2 locations, no shifting
+; args:
+; < A0: 2-plane source (16x16) with mask as third plane
+; < A1: destination (56 rows, assuming address is correct (no XY))
+;       but can be odd (so 8 bits shifting will be added)
+
+; (will use A1 as background for cookie cut too)
+; trashes: D0-D1
+
+blit_16x16_scroll_object
+    movem.l d2-d7/a2-a5,-(a7)
+    lea $DFF000,A5
+	move.l	a1,d1
+	moveq.l #-1,d3	;masking of first/last word : no mask   
+    moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
+    move.w  #16,d4      ; 16 pixels height   
+	lea	(BOB_16X16_PLANE_SIZE*2,a0),a4	; mask
+
+    move.l  #$0fca0000,d5    ;B+C-A->D cookie cut   
+	btst	#0,d1
+	beq.b	.no_shift
+	bclr	#0,d1
+	move.l	d1,a1	; even address
+	; 8 bit shift
+	or.l	#8<<12,d5
+.no_shift
+	move.l	a1,a2
+
+	move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE,d0
+    sub.w   d2,d0       ; blit width
+
+    lsl.w   #6,d4
+    lsr.w   #1,d2
+    add.w   d2,d4       ; blit height
+
+	; now we have 4 blits to perform
+	; 1 blit to a1 (and a1+SCROLL_PLANE_SIZE)
+	; 1 blit to a3 (and a3+SCROLL_PLANE_SIZE)
+	
+	
+    ; now just wait for blitter ready to write all registers
+	bsr	wait_blit
+    
+    ; blitter registers set
+    move.l  d3,bltafwm(a5)
+	move.l d5,bltcon0(a5)	
+	clr.w bltamod(a5)		;A modulo=bytes to skip between lines	
+    move.w  d0,bltcmod(a5)	;C modulo
+    move.w  d0,bltdmod(a5)	;D modulo
+	
+	move.l a4,bltapt(a5)	;source graphic top left corner (mask, remains set for all 4 blits)
+	move.l a0,bltbpt(a5)	;source graphic top left corner
+	move.l a1,bltcpt(a5)	;pristine background
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+
+	; let a2 point to graphics second plane
+	lea	(BOB_16X16_PLANE_SIZE,a0),a2
+
+	; now compute mirror rect (scrolling)
+	; for this we need to know the offset
+	sub.w	#NB_BYTES_PER_PLAYFIELD_LINE,a3
+	cmp.l	#scroll_data,a3
+	bcc.b	.do
+	add.w	#NB_BYTES_PER_PLAYFIELD_LINE*2,a3
+.do
+	
+	bsr	wait_blit
+
+	move.l a0,bltbpt(a5)	;source graphic top left corner
+	move.l a3,bltcpt(a5)	;pristine background
+	move.l a3,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+
+	; now second plane
+	add.l	#SCROLL_PLANE_SIZE,a1
+	add.l	#SCROLL_PLANE_SIZE,a3
+	
+	bsr	wait_blit
+
+	move.l a2,bltbpt(a5)	;source graphic top left corner
+	move.l a1,bltcpt(a5)	;pristine background
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+	
+	bsr	wait_blit
+
+	move.l a2,bltbpt(a5)	;source graphic top left corner
+	move.l a3,bltcpt(a5)	;pristine background
 	move.l a3,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
 	
@@ -5803,7 +5862,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY player_killed,2,SOUNDFREQ,56
     SOUND_ENTRY rocket_explodes,3,SOUNDFREQ,40
     SOUND_ENTRY bomb_falling,2,SOUNDFREQ,17
-    SOUND_ENTRY shoot,0,SOUNDFREQ,9
+    SOUND_ENTRY shoot,1,SOUNDFREQ,9
     SOUND_ENTRY bomb_hits_ground,2,SOUNDFREQ,64
 	
 	include	"blocks.s"
