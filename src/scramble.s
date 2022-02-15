@@ -93,7 +93,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 5
+START_LEVEL = 2
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -170,7 +170,7 @@ MAX_NB_BOMBS = 2
 MAX_NB_SHOTS = 4
 MAX_NB_EXPLOSIONS = 16
 MAX_NB_SCORES = 5
-MAX_NB_FLYING_ROCKETS = 4
+MAX_NB_AIRBORNE_ENEMIES = 4
 
 SHOT_SPEED = 4
 
@@ -558,9 +558,7 @@ intro:
 .game_over
     bra.b   .mainloop
 .next_level
-    add.w   #1,level_number
-	bsr		update_level_data
-	
+; not reached
 	
     bra.b   .new_level
 .life_lost
@@ -798,6 +796,7 @@ clear_scroll_plane
     rts
 
 update_level_data
+
 	move.w	#10,d1
 	move.w	nb_missions_completed(pc),d0
 	beq.b	.store
@@ -1013,11 +1012,9 @@ init_enemies
 	move.w	#MAX_NB_SCORES-1,d7
 	bsr	free_all_slots	
 	
-	lea	flying_rockets,a4
-	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
-	bsr	free_all_slots
+	bsr	free_enemy_slots
 
-	clr.b	rocket_cyclic_counter
+	clr.b	enemy_launch_cyclic_counter
     
 	; clear rocket heights
 	lea	screen_ground_rocket_table,a0
@@ -1260,16 +1257,29 @@ PLAYER_ONE_Y = 102-14
 
 	tst.b	next_level_flag
 	beq.b	.same_level
+	bsr	erase_enemies
+	bsr	free_enemy_slots
 	bsr		draw_current_level
+	clr.b	next_level_flag
 .same_level
 	bsr	erase_bombs
-	bsr	erase_flying_rockets
+	
+	; erase stuff depending on the level
+	bsr	erase_enemies
 	bsr	erase_explosions
     bsr draw_player
 	bsr	draw_bombs
 	bsr	draw_shots
 	bsr	draw_explosions
-	bsr	draw_flying_rockets
+
+	move.w	level_number(pc),d0
+	add.w	d0,d0
+	add.w	d0,d0
+	lea		draw_table(pc),a0
+	move.l	(a0,d0.w),a0
+	jsr		(a0)
+
+
 	bsr	draw_score
 	tst.b	update_fuel_message
 	beq.b	.no_fuel_draw
@@ -1322,7 +1332,33 @@ stop_sounds
     clr.b   music_playing
     bra _mt_end
 
+erase_enemies:
+	move.w	level_number(pc),d0
+	add.w	d0,d0
+	add.w	d0,d0
+	lea		erase_table(pc),a0
+	move.l	(a0,d0.w),a0
+	jmp		(a0)
+	
+erase_table
+	dc.l	erase_flying_rockets
+	dc.l	erase_ufos
+	dc.l	erase_fireballs
+	dc.l	erase_flying_rockets
+	dc.l	nothing
+	dc.l	nothing
+	
+draw_table
+	dc.l	draw_flying_rockets
+	dc.l	draw_ufos
+	dc.l	draw_fireballs
+	dc.l	draw_flying_rockets
+	dc.l	nothing
+	dc.l	nothing
 
+nothing
+	rts
+	
 ; < A4: pointer on cell to update in screen rocket scroll list
 ; < A5: pointer on column to update in screen scroll tilemap
 ; < A6: map pointer
@@ -2833,6 +2869,10 @@ update_all
 	; update rockets in stages 1 and 4
 	bsr	update_rockets
 .inactive
+	cmp.w	#1,level_number
+	bne.b	.no_ufos
+	bsr		update_ufos
+.no_ufos
 	bsr	update_fuel_alarm
     bsr update_player
     tst.w   player_killed_timer
@@ -2947,7 +2987,7 @@ draw_scrolling_tiles
 	bra.b	.no_end
 .level_completed
 	addq.w	#1,level_number
-	st.b	next_level_flag
+	st.b	next_level_flag	
 .no_end
 	move.l	a6,map_pointer
 	
@@ -2983,6 +3023,11 @@ draw_scrolling_tiles
 .no_new_tiles	
 	rts
 	
+mission_completed:
+	clr.w	level_number
+    addq.w   #1,nb_missions_completed
+	bsr		update_level_data
+	rts
 	
 update_scrolling
 	; now we have to copy what we just created so when we
@@ -3048,13 +3093,13 @@ update_scrolling
 	rts
 
 update_rockets
-	move.b	rocket_cyclic_counter(pc),d0
+	move.b	enemy_launch_cyclic_counter(pc),d0
 	addq.b	#1,d0
-	move.b	d0,rocket_cyclic_counter
+	move.b	d0,enemy_launch_cyclic_counter
 	and.b	#$3F,d0
 	bne.b	.no_launch
 	; check if a rocket is ready to launch
-	;;flying_rockets
+	;;airborne_enemies
 	; see if there are rockets that we could launch that
 	; could hit the player ship
 	; original code ranges Y from $60 to $E8
@@ -3077,7 +3122,7 @@ update_rockets
 	move.w	d1,d4	; save for later
 	bsr		get_tile_type
 	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)
-	bra.b	.no_rocket		; TEMP
+	;;bra.b	.no_rocket		; TEMP
 	
 	bne.b	.no_rocket	; rocket has been shot or launched
 	; there's a rocket to be launched
@@ -3104,11 +3149,45 @@ update_rockets
 .no_rocket
 	dbf	d2,.check
 .no_launch
+	; update existing rockets
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea	airborne_enemies(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b 	.no_update
+	bmi.b	.no_update
+	addq.w	#1,frame(a4)
+	move.w	xpos(a4),d0
+	move.w	ypos(a4),d1
+	subq.w	#1,d1	; up
+	subq.w	#1,d0	; left
+	cmp.w	#Y_SHIP_MIN,d1
+	bcs.b	.stop_rocket
+	tst.b	scroll_stop_flag
+	bne.b	.no_scroll
+	cmp.w	#X_MIN,d0
+	bcs.b	.stop_rocket
+.no_scroll
+	move.w	d0,xpos(a4)
+	move.w	d1,ypos(a4)
+	sub.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,plane_address(a4)
+	; test if hitting player	
+
+.no_update
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
 	rts
+.stop_rocket
+	st.b	active(a4)	; last clear, no draw
+	bra.b	.no_update
+
 	
 		
 
 check_collisions
+	
+	move.w	ypos(a3),d0
+	
 	clr.w	d0
     lea player(pc),a3
 	; testing 2 tiles on ship only, let's see how it goes
@@ -3116,6 +3195,9 @@ check_collisions
     move.w  xpos(a3),d2
 	add.w	#X_EXHAUST_WIDTH,d2	; skip exhaust
     move.w  ypos(a3),d3
+	cmp.w	#$F0,d3		; just in case cheat on and no more fuel
+	bcc.b	player_killed
+	
 	move.w	d2,d0
 	add.w	#16,d0	; front
 	move.w	d3,d1
@@ -3397,9 +3479,26 @@ explosion_animation_table_part_2
 	REPT	9
 	dc.l	explosion_8
 	ENDR
-	
+
 	; directly copied from reverse-engineered arcade source
 	; X and Y are swapped (90 degree rotated display)
+	
+ufo_move_table
+
+    dc.b  $FF,$00         ; XDelta = -1, YDelta = 0          
+    dc.b  $FE,$00         ; XDelta = -2, YDelta = 0
+    dc.b  $FE,$00       
+    dc.b  $FE,$00,$FE,$00,$FE,$00,$FE,$00,$FE,$00,$FE,$00,$FE,$02,$FE,$00
+    dc.b  $FE,$02,$FE,$00,$FE,$02,$FE,$02,$FE,$02,$FE,$02,$00,$02,$00,$02
+    dc.b  $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$00,$02,$02
+    dc.b  $02,$00,$02,$02,$02,$00,$02,$02,$02,$00,$02,$00,$02,$00,$02,$00
+    dc.b  $02,$00,$02,$02,$02,$00,$02,$00,$02,$00,$02,$02,$02,$00,$02,$00
+    dc.b  $02,$00,$02,$00,$02,$02,$02,$00,$02,$02,$02,$00,$02,$00,$02,$02
+    dc.b  $02,$02,$02,$02,$00,$02,$00,$02,$00,$02,$FE,$02,$FE,$02,$FE,$02
+    dc.b  $FE,$02,$FE,$00,$FE,$02,$FE,$00,$FE,$02,$FE,$00,$FE,$02,$FE,$00
+    dc.b  $FE,$02,$FE,$00,$FE,$00,$FE,$00,$FE,$00,$FE,$00,$FE,$00
+    dc.b  $80,$80      ; marker byte specifying "end of path"
+	
 bomb_move_table
     dc.b  $00,$00         ; X delta = 0, Y delta = 0 
     dc.b  $01,$00         ; X delta = 1, Y delta = 0  
@@ -3741,22 +3840,45 @@ create_bomb:
 	movem.l	(a7)+,a4/d0/d7
 	rts
 	
+create_ufo:
+	movem.l	d0/d7/a4,-(a7)
+	move.w	#X_MAX,d0
+	move.w	#108,d1
+	bsr.b	create_enemy
+	tst	d7
+	bmi.b	.no_slots	; no more slots
+	clr.w	move_index(a4)
+.no_slots
+	movem.l	(a7)+,d0/d7/a4
+	rts
+	
+create_fireball:
+	movem.l	d0/d7/a4,-(a7)
+	move.w	#X_MAX,d0
+	move.w	#128,d1		; todo random
+	bsr.b	create_enemy
+	movem.l	(a7)+,d0/d7/a4
+	rts
+	
 create_flying_rocket:
-	movem.l	a4/d0/d7,-(a7)
+	movem.l	d0/d7/a4,-(a7)
+	bsr.b	create_enemy
+	movem.l	(a7)+,d0/d7/a4
+	rts
+	
+create_enemy
 	; check if there's a free slot, here first or second
-	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
-	lea	flying_rockets(pc),a4
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea	airborne_enemies(pc),a4
 	bsr	find_slot
 	tst	d7
 	bmi.b	.no_fly	; no more slots
-.found_bomb_slot
-	; launch the bomb
+	
 	clr.w	frame(a4)
 	; init bomb with ship position plus something
 	move.w	d0,xpos(a4)
 	move.w	d1,ypos(a4)
 .no_fly
-	movem.l	(a7)+,a4/d0/d7
 	rts
 	
 
@@ -3805,6 +3927,10 @@ create_explosion
 	movem.l	(a7)+,a4/d7
 	rts
 
+
+free_enemy_slots
+	lea	airborne_enemies,a4
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 ; what: set all objects to free
 ; < D7: number of items to search minus one
 ; < A4: start of array
@@ -3912,15 +4038,22 @@ update_shots:
 	cmp.w	#X_MAX-8,d0
 	bcc.b	.stop
 	move.w	d0,xpos(a4)
+	move.w	d0,d3
+	move.w	d1,d4
 	; test if hitting something (scenery)
 	move.w	ypos(a4),d1
 	bsr		get_tile_type
 	tst.b	(a0)
-	beq.b	.no_update
+	beq.b	.try_enemies
 	bsr.b	something_was_hit
 	; shot disables on scenery or targets
 	bra.b	.stop
-
+.try_enemies
+	; see if the shot collides with an active 16x16 enemy
+	move.w	d3,d0
+	move.w	d4,d1
+	moveq.w	#2,d2	; small dimension
+	bsr		projectile_enemy_collision
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
@@ -4009,7 +4142,8 @@ something_was_hit
 	move.l	(a1,d1.w),a1	; graphics
 	exg.l	a0,a1			; swap as A0 is source and A1 dest
 	bsr		blit_16x16_scroll_object
-	
+	lea		bomb_hits_ground_sound,a0
+	bsr		play_fx	
 	bra.b	.object_shot
 .fuel_shot
 	; create an explosion for the object
@@ -4021,8 +4155,8 @@ something_was_hit
 	move.w	#48,d0
 	bsr		add_to_fuel
 	
-	lea		rocket_explodes_sound,a0
-	bsr		play_fx
+	lea		bomb_hits_ground_sound,a0
+	bsr		play_fx	
 	bra.b	.object_shot
 .rocket_shot
 	; create an explosion for the object
@@ -4105,7 +4239,7 @@ remove_object
 	dbf		d3,.ploop
 	rts
 	
-	
+
 ; update bombs/explosions/shots routines set a negative active flag
 ; when they're done. Then it's the drawing routine that clears that flag
 ; it's done that way because drawing routine sometimes skips 1 frame (1 out of 6)
@@ -4140,10 +4274,12 @@ update_bombs:
 	addq.w	#2,move_index(a4)
 	move.w	d0,xpos(a4)
 	move.w	d1,ypos(a4)
+	move.w	d0,d3
+	move.w	d1,d4
 	; test if hitting something (scenery)
 	bsr		get_tile_type
 	tst.b	(a0)
-	beq.b	.no_update
+	beq.b	.try_enemies
 	; bomb explodes on scenery
 	clr.w	d2
 	move.w	xpos(a4),d0
@@ -4151,9 +4287,17 @@ update_bombs:
 	bsr		create_explosion
 	bsr		something_was_hit
 	
-	lea		bomb_hits_ground_sound,a0
-	bsr		play_fx
+
 	bra.b	.stop_bomb
+.try_enemies
+	; see if the shot collides with an active 16x16 enemy
+	move.w	d3,d0
+	move.w	d4,d1
+	addq.w	#5,d0
+	addq.w	#5,d1
+	moveq.w	#6,d2	; big dimension
+	bsr		projectile_enemy_collision
+	
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
@@ -4163,40 +4307,113 @@ update_bombs:
 	bra.b	.no_update
 
 
-update_flying_rockets:
-	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
-	lea	flying_rockets(pc),a4
+update_ufos:
+	move.b	enemy_launch_cyclic_counter(pc),d0
+	addq.b	#1,d0
+	move.b	d0,enemy_launch_cyclic_counter
+	and.b	#$3F,d0
+	bne.b	.no_launch
+	; insert an ufo in playfield
+	bsr		create_ufo
+.no_launch
+	; move existing enemies
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea		airborne_enemies(pc),a4
 .loop	
 	tst.b	active(a4)
-	beq.b 	.no_update
+	beq.b	.no_update
 	bmi.b	.no_update
-	addq.w	#1,frame(a4)
+	move.w	move_index(a4),d2	; move index
+	move.w	d2,d0
+	addq.w	#2,d0		; next pos
+	move.w	d0,move_index(a4)
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
-	subq.w	#1,d1	; up
-	subq.w	#1,d0	; left
-	cmp.w	#Y_SHIP_MIN,d1
-	bcs.b	.stop_rocket
-	tst.b	scroll_stop_flag
-	bne.b	.no_scroll
-	cmp.w	#X_MIN,d0
-	bcs.b	.stop_rocket
-.no_scroll
+	lea		ufo_move_table(pc),a0
+.retry
+	move.b	(a0,d2.w),d3
+	cmp.b	#$80,d3
+	bne.b	.no_reset
+	; end of table, loop
+	clr.w	move_index(a4)
+	move.b	(a0),d3
+	clr.w	d2
+.no_reset
+	ext.w	d3
+	add.w	d3,d1
+	move.b	(1,a0,d2.w),d3
+	ext.w	d3
+	sub.w	d3,d0
+	;subq.w	#1,d0
+	bmi.b	.stop
+	
 	move.w	d0,xpos(a4)
 	move.w	d1,ypos(a4)
-	sub.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,plane_address(a4)
-	; test if hitting player	
 
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
 	rts
-.stop_rocket
+.stop
 	st.b	active(a4)	; last clear, no draw
 	bra.b	.no_update
 
 
+; < D0,D1: x,y of bomb/shot
+; < D2: side of bomb/shot (4 for bomb, 2 for shot)
+projectile_enemy_collision
+	; move existing enemies
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea		airborne_enemies(pc),a4
+	move.w	D0,d5
+	move.w	D1,d6
+	add.w	d2,d5
+	add.w	d2,d6	; d0-d5 / d1-d6: X/Y bounding box for projectile
+	move.w	#16,d2	; size of enemy
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_update
+	bmi.b	.no_update
 
+	move.w	xpos(a4),d3
+	cmp.w	d5,d3
+	bcc.b	.no_update	; D3 >= D5: skip
+	add.w	d2,d3
+	cmp.w	d5,d3
+	bcc.b	.x_validated	; D3+D2 < D5: skip
+	; X is not validated: try lower bound of projectile
+	move.w	xpos(a4),d3
+	cmp.w	d0,d3
+	bcc.b	.no_update	; D3 >= D5: skip
+	add.w	d2,d3
+	cmp.w	d0,d3
+	bcs.b	.no_update
+.x_validated
+	; X is validated: same for Y
+	move.w	ypos(a4),d3
+	cmp.w	d6,d3
+	bcc.b	.no_update	; D3 >= D5: skip
+	add.w	d2,d3
+	cmp.w	d6,d3
+	bcc.b	.y_validated	; D3+D2 < D5: skip
+	; X is not validated: try lower bound of projectile
+	move.w	ypos(a4),d3
+	cmp.w	d1,d3
+	bcc.b	.no_update	; D3 >= D5: skip
+	add.w	d2,d3
+	cmp.w	d1,d3
+	bcs.b	.no_update
+.y_validated	
+	; enemy hit TODO explosion + score
+	
+.no_update
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	rts
+.stop
+	st.b	active(a4)	; last clear, no draw
+	bra.b	.no_update
+	
 draw_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
 	lea	explosions(pc),a4
@@ -4302,8 +4519,8 @@ draw_shots:
 
 	
 draw_flying_rockets:
-	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
-	lea	flying_rockets(pc),a4
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea	airborne_enemies(pc),a4
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_draw
@@ -4333,6 +4550,18 @@ draw_flying_rockets:
 erase_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
 	lea	explosions(pc),a0
+	bra	erase_16x16_objects
+	
+erase_ufos:
+erase_fireballs:
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea	airborne_enemies(pc),a0
+	bra		erase_16x16_objects
+
+erase_bombs:	
+	move.w	#MAX_NB_BOMBS-1,d7
+	lea	bombs(pc),a0
+erase_16x16_objects:	
 	; 0 coords (we're using exact bitplane addresses)
 	clr.w	d0
 	clr.w	d1
@@ -4369,25 +4598,16 @@ erase_explosions:
 	dbf		d7,.loop
 	rts
 	
+; < A0: data
+; < A4: enemy struct
+; < D3: X
+; < D4: Y
 
-draw_bombs:
-	move.w	#MAX_NB_BOMBS-1,d7
-	lea	bombs(pc),a4
-.loop	
+; shared between bombs, ufos, fireballs, internal use
+; trashes: pretty much every register :)
+
+internal_blit_3_object_planes:
     lea screen_data,a1
-	tst.b	active(a4)
-	beq.b	.no_draw
-	bmi.b	.clear
-	lea	bomb_animation_table(pc),a0
-	move.w	frame(a4),d0
-	and.b	#$FC,d0		; round on 4
-	cmp.w	#bomb_animation_table_end-bomb_animation_table-4,d0
-	bcs.b	.okay
-	; last frame sticks
-	move.w	#bomb_animation_table_end-bomb_animation_table-4,d0
-.okay
-	move.l	(a0,d0.w),a0	; get proper frame
-.draw
 	move.w	xpos(a4),d3
 	move.w	ypos(a4),d4
     move.w d3,d0
@@ -4407,6 +4627,47 @@ draw_bombs:
     move.w d4,d1
     bsr blit_16x16_plane_cookie_cut
 	ENDR
+	rts
+	
+draw_bombs:
+	move.w	#MAX_NB_BOMBS-1,d7
+	lea	bombs(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_draw
+	bmi.b	.clear
+	lea	bomb_animation_table(pc),a0
+	move.w	frame(a4),d0
+	and.b	#$FC,d0		; round on 4
+	cmp.w	#bomb_animation_table_end-bomb_animation_table-4,d0
+	bcs.b	.okay
+	; last frame sticks
+	move.w	#bomb_animation_table_end-bomb_animation_table-4,d0
+.okay
+	move.l	(a0,d0.w),a0	; get proper frame
+.draw
+	bsr	internal_blit_3_object_planes
+
+.no_draw
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	rts
+.clear
+	; last draw of that object, clears it
+	clr.b	active(a4)
+	lea	 empty_16x16_bob,a0
+	bra.b	.draw
+
+draw_fireballs:
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea	airborne_enemies(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_draw
+	bmi.b	.clear
+	lea	ufo,a0
+.draw
+	bsr		internal_blit_3_object_planes
 	
 .no_draw
 	add.w	#GfxObject_SIZEOF,a4
@@ -4418,9 +4679,33 @@ draw_bombs:
 	lea	 empty_16x16_bob,a0
 	bra.b	.draw
 	
+
+draw_ufos:
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea	airborne_enemies(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_draw
+	bmi.b	.clear
+	lea	ufo,a0
+.draw
+	bsr		internal_blit_3_object_planes
+	
+.no_draw
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	rts
+.clear
+	; last draw of that object, clears it
+	clr.b	active(a4)
+	lea	 empty_16x16_bob,a0
+	bra.b	.draw
+	
+
+	
 erase_flying_rockets:
-	move.w	#MAX_NB_FLYING_ROCKETS-1,d7
-	lea	flying_rockets(pc),a0
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea	airborne_enemies(pc),a0
 	; 0 coords (we're using exact bitplane addresses)
 	clr.w	d0
 	clr.w	d1
@@ -4434,7 +4719,7 @@ erase_flying_rockets:
     moveq.l #-1,d5
 	bra.b	.no_erase
 .not_first_draw
-
+	; 2 planes
 
 .no_erase
 	add.w	#GfxObject_SIZEOF,a0
@@ -4443,7 +4728,7 @@ erase_flying_rockets:
 	
 
 	
-erase_bombs:
+old_erase_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
 	lea	bombs(pc),a0
 .loop
@@ -5698,7 +5983,7 @@ alive_timer
 	dc.b	0
 rockets_fly_flag:
 	dc.b	0
-rocket_cyclic_counter
+enemy_launch_cyclic_counter
 	dc.b	0
 game_completed_flag
 	dc.b	0
@@ -6016,8 +6301,8 @@ explosions:
 	ds.b	GfxObject_SIZEOF*MAX_NB_EXPLOSIONS
 mystery_scores:
 	ds.b	GfxObject_SIZEOF*MAX_NB_SCORES
-flying_rockets:
-	ds.b	GfxObject_SIZEOF*MAX_NB_FLYING_ROCKETS
+airborne_enemies:
+	ds.b	GfxObject_SIZEOF*MAX_NB_AIRBORNE_ENEMIES
 
 
     
@@ -6209,6 +6494,8 @@ explosion_7:
 explosion_8:
 	incbin	"explosion_8.bin"
 	
+ufo:
+	incbin	"ufo.bin"
 	
 level_number_tiles:
 	incbin	"levels_1b_0.bin"

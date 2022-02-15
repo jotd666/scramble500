@@ -45,17 +45,19 @@ CREDITS:
 ISSUES:
 
 - maybe vertical speed not enough (level 5)
-- bombing rockets (ground or flying) should just play high pitched explosion
 
 TODO
 
 - start music: play on separate screen (player one get ready)
 - specific sound loops per levels
 - flying rockets
-- ufos
 - asteroids
 - animated base
 - hide stars in levels with ceiling (2,5)
+- option to fire and bomb with 1 button
+- bombing anything: bomb explodes briefly and sound is covered by object explosion
+- shooting rockets: higher explosion
+- shooting mystery/sound: long explosion
 
 BUILDING FROM SOURCES:
 
