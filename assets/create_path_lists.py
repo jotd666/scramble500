@@ -53,14 +53,15 @@ def as_lists(s):
 
     toks = [int(x.lstrip("$"),16) for x in re.split("[\s,]",s) if x and not x.startswith("dc")]
     # fix sign
-    toks = (x if x < 128 else x-256 for x in toks)
+    signed_toks = [x if x < 128 else x-256 for x in toks]
+    toks_iter = iter(signed_toks)
     xlist =[]
     ylist = []
     try:
         while True:
             # proper coordinates (90 degree rotation)
-            ylist.append(next(toks))
-            xlist.append(-next(toks))
+            ylist.append(next(toks_iter))
+            xlist.append(-next(toks_iter))
     except StopIteration:
         pass
     return xlist,ylist
@@ -74,7 +75,7 @@ xl,yl = as_lists(bomb_move_table)
 dump_list(xl,"xbomb.txt")
 dump_list(yl,"ybomb.txt")
 
-xl,yl = as_lists(bomb_move_table)
+xl,yl = as_lists(ufo_path)
 dump_list(xl,"xufo.txt")
 dump_list(yl,"yufo.txt")
 

@@ -93,7 +93,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 2
+START_LEVEL = 3
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -164,6 +164,7 @@ X_MIN=X_SHIP_MIN
 X_SHIP_MAX=84
 Y_SHIP_MIN=28
 Y_SHIP_MAX=Y_MAX-16
+Y_START_UFO = 108
 X_EXHAUST_WIDTH = 10	; 10 first pixels of ship don't trigger collision
 
 MAX_NB_BOMBS = 2
@@ -517,8 +518,7 @@ intro:
     move.b  d0,new_life_restart ; used by init player
     bsr init_enemies
     bsr init_player
-    
-
+   
 	
     bsr wait_bof
 
@@ -540,6 +540,7 @@ intro:
 	IFND	SCROLL_DEBUG
 	bsr	draw_level_map
 	bsr	draw_current_level
+
 	ENDC
     move.w  #STATE_PLAYING,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
@@ -1036,6 +1037,7 @@ init_player:
 	
 	
     clr.w   death_frame_offset
+	clr.w	fireball_sound_timer
 	move.w	#1,low_fuel_sound_timer
 	move.w	#START_FUEL,fuel
     tst.b   new_life_restart
@@ -1526,8 +1528,11 @@ add_to_fuel:
 	move.l	d1,-(a7)
 	move.w	fuel(pc),d1
 	add.w	d0,d1
-	bmi.b	.skip
-	and.w	#$FF,d1	; clip to 255
+	bmi.b	.skip	; if negative no more fuel
+	cmp.w	#$100,d1
+	bcs.b	.ok
+	move.w	#$FF,d1	; clip to 255
+.ok
 	move.w	d1,fuel
 	st.b	update_fuel_message
 .skip
@@ -2864,15 +2869,13 @@ update_all
 	bsr	update_explosions
 	bsr	update_mystery_scores
 	
-	tst.b	rockets_fly_flag
-	beq.b	.inactive
-	; update rockets in stages 1 and 4
-	bsr	update_rockets
-.inactive
-	cmp.w	#1,level_number
-	bne.b	.no_ufos
-	bsr		update_ufos
-.no_ufos
+	lea		update_table(pc),a0
+	move.w	level_number(pc),d0
+	add.w	d0,d0
+	add.w	d0,d0
+	move.l	(a0,d0.w),a0
+	jsr		(a0)
+	
 	bsr	update_fuel_alarm
     bsr update_player
     tst.w   player_killed_timer
@@ -2905,6 +2908,15 @@ update_all
 .intro_music_played
     dc.b    0
     even
+
+update_table
+	dc.l	update_rockets
+	dc.l	update_ufos
+	dc.l	update_fireballs
+	dc.l	update_rockets
+	dc.l	nothing
+	dc.l	nothing
+	
 start_music_countdown
     dc.w    0
 
@@ -3843,7 +3855,7 @@ create_bomb:
 create_ufo:
 	movem.l	d0/d7/a4,-(a7)
 	move.w	#X_MAX,d0
-	move.w	#108,d1
+	move.w	#Y_START_UFO,d1
 	bsr.b	create_enemy
 	tst	d7
 	bmi.b	.no_slots	; no more slots
@@ -3854,9 +3866,13 @@ create_ufo:
 	
 create_fireball:
 	movem.l	d0/d7/a4,-(a7)
+	bsr		random
+	and.w	#$7F,d0
+	add.w	#Y_SHIP_MIN,d0
+	move.w	d0,d1
 	move.w	#X_MAX,d0
-	move.w	#128,d1		; todo random
 	bsr.b	create_enemy
+	clr.w	move_index(a4)
 	movem.l	(a7)+,d0/d7/a4
 	rts
 	
@@ -4049,6 +4065,8 @@ update_shots:
 	; shot disables on scenery or targets
 	bra.b	.stop
 .try_enemies
+	cmp.w	#2,level_number
+	beq.b	.no_update
 	; see if the shot collides with an active 16x16 enemy
 	move.w	d3,d0
 	move.w	d4,d1
@@ -4295,6 +4313,9 @@ update_bombs:
 
 	bra.b	.stop
 .try_enemies
+	cmp.w	#2,level_number
+	beq.b	.no_update
+
 	; see if the shot collides with an active 16x16 enemy
 	move.w	d3,d0
 	move.w	d4,d1
@@ -4365,6 +4386,68 @@ update_ufos:
 	bra.b	.no_update
 
 
+update_fireballs:
+	; play sound in fake loop unless player is killed
+    tst.w  player_killed_timer
+    bpl.b   .no_sound_play
+
+	move.w	fireball_sound_timer(pc),d0
+	addq.w	#1,d0
+	cmp.w	#ORIGINAL_TICKS_PER_SEC,d0
+	bne.b	.no_sound_play
+	lea	fireballs_sound,a0
+	bsr	play_fx
+	clr.w	d0
+.no_sound_play
+	move.w	d0,fireball_sound_timer
+	
+	move.b	enemy_launch_cyclic_counter(pc),d0
+	addq.b	#1,d0
+	move.b	d0,enemy_launch_cyclic_counter
+	and.b	#$F,d0		; spawn every 16 ticks
+	bne.b	.no_launch
+	; insert an ufo in playfield
+	bsr		create_fireball
+.no_launch
+	; move existing enemies
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	lea		airborne_enemies(pc),a4
+.loop	
+	tst.b	active(a4)
+	beq.b	.no_update
+	bmi.b	.no_update
+
+	move.w	move_index(a4),d0
+	
+	addq.w	#1,d0
+	cmp.w	#5,d0
+	bne.b	.no_reset
+	move.w	frame(a4),d1
+	addq.w	#4,d1
+	cmp.w	#24,d1
+	bne.b	.no_reset2
+	clr.w	d1
+.no_reset2
+	move.w	d1,frame(a4)
+	clr.w	d0
+.no_reset
+	move.w	d0,move_index(a4)
+	
+	move.w	xpos(a4),d0
+	subq.w	#4,d0
+	
+	bmi.b	.stop
+	move.w	d0,xpos(a4)
+
+.no_update
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	rts
+.stop
+	st.b	active(a4)	; last clear, no draw
+	bra.b	.no_update
+
+
 ; < D0,D1: x,y of bomb/shot
 ; < D2: side of bomb/shot (4 for bomb, 2 for shot)
 ; trashes: nothing
@@ -4418,6 +4501,13 @@ projectile_enemy_collision
 	move.w	ypos(a4),d1
 	moveq	#1,d2
 	bsr		create_explosion
+	
+	moveq.l	#8,D0	; 80 points
+	cmp.w	#1,level_number
+	bne.b	.no_ufos
+	move.l	#10,d0
+.no_ufos
+	bsr	add_to_score
 	; enemy hit explosion + score
 	lea	rocket_explodes_sound,a0	; TODO not the right sound
 	bsr	play_fx
@@ -4687,7 +4777,9 @@ draw_fireballs:
 	tst.b	active(a4)
 	beq.b	.no_draw
 	bmi.b	.clear
-	lea	ufo,a0
+	lea	fireball_table(pc),a0
+	move.w	frame(a4),d0
+	move.l	(a0,d0.w),a0
 .draw
 	bsr		internal_blit_3_object_planes
 	
@@ -5988,6 +6080,8 @@ low_fuel_sound_timer
 	dc.w	0
 loop_sound_delay
 	dc.w	0
+fireball_sound_timer
+	dc.w	0
 nb_missions_completed
 	dc.w	0
 	
@@ -6051,6 +6145,9 @@ flying_rocket_sprite_table:
 mystery_sprite_table:
 	dc.l	score_100,score_100,score_200,score_300
 		
+fireball_table:
+	dc.l	fireball_1,fireball_2,fireball_3,fireball_4,fireball_3,fireball_2
+
 player_kill_anim_table:
     REPT    ORIGINAL_TICKS_PER_SEC/2
     dc.b    0
@@ -6290,6 +6387,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY bomb_falling,2,SOUNDFREQ,17
     SOUND_ENTRY shoot,1,SOUNDFREQ,9
     SOUND_ENTRY bomb_hits_ground,2,SOUNDFREQ,64
+    SOUND_ENTRY fireballs,3,SOUNDFREQ,4
 	
 	include	"blocks.s"
 
@@ -6478,6 +6576,16 @@ bomb_4:
 bomb_5:
 	incbin	"bomb_5.bin"
 	
+	
+fireball_1:
+	incbin	"fireball_1.bin"
+fireball_2:
+	incbin	"fireball_2.bin"
+fireball_3:
+	incbin	"fireball_3.bin"
+fireball_4:
+	incbin	"fireball_4.bin"
+	
 flying_rocket_1:
 	incbin	"rocket_1.bin"
 flying_rocket_2:
@@ -6553,6 +6661,11 @@ bomb_falling_raw
     incbin  "bomb_falling.raw"
     even
 bomb_falling_raw_end
+
+fireballs_raw
+    incbin  "fireballs.raw"
+    even
+fireballs_raw_end
 
 
 shoot_raw

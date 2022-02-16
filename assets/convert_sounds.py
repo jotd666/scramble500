@@ -5,7 +5,7 @@ import subprocess,os,struct
 sox = r"k:\progs\sox-14-4-2\sox.exe"
 
 wav_files = ["low_fuel.wav","player_killed.wav","rocket_explodes.wav",
-            "bomb_falling.wav","shoot.wav","bomb_hits_ground.wav"]
+            "bomb_falling.wav","shoot.wav","bomb_hits_ground.wav","fireballs.wav"]
 outdir = "../sounds"
 
 
