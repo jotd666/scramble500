@@ -4038,10 +4038,10 @@ update_shots:
 	cmp.w	#X_MAX-8,d0
 	bcc.b	.stop
 	move.w	d0,xpos(a4)
-	move.w	d0,d3
-	move.w	d1,d4
 	; test if hitting something (scenery)
 	move.w	ypos(a4),d1
+	move.w	d0,d3
+	move.w	d1,d4
 	bsr		get_tile_type
 	tst.b	(a0)
 	beq.b	.try_enemies
@@ -4054,6 +4054,8 @@ update_shots:
 	move.w	d4,d1
 	moveq.w	#2,d2	; small dimension
 	bsr		projectile_enemy_collision
+	tst		d0
+	bne.b	.stop
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
@@ -4267,7 +4269,7 @@ update_bombs:
 	ext.w	d3
 	add.w	d3,d1
 	cmp.w	#Y_MAX-16,d1	; can't happen
-	bcc.b	.stop_bomb
+	bcc.b	.stop
 	move.b	(1,a0,d2.w),d3
 	ext.w	d3
 	sub.w	d3,d0
@@ -4287,8 +4289,11 @@ update_bombs:
 	bsr		create_explosion
 	bsr		something_was_hit
 	
+	lea		bomb_hits_ground_sound,a0
+	bsr		play_fx	
+	
 
-	bra.b	.stop_bomb
+	bra.b	.stop
 .try_enemies
 	; see if the shot collides with an active 16x16 enemy
 	move.w	d3,d0
@@ -4297,12 +4302,13 @@ update_bombs:
 	addq.w	#5,d1
 	moveq.w	#6,d2	; big dimension
 	bsr		projectile_enemy_collision
-	
+	tst		d0
+	bne.b	.stop
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
 	rts
-.stop_bomb
+.stop
 	st.b	active(a4)	; last clear, no draw
 	bra.b	.no_update
 
@@ -4361,8 +4367,12 @@ update_ufos:
 
 ; < D0,D1: x,y of bomb/shot
 ; < D2: side of bomb/shot (4 for bomb, 2 for shot)
+; trashes: nothing
+; returns: D0.b	!= 0 if something was hit (to remove shot)
+
 projectile_enemy_collision
 	; move existing enemies
+	movem.l	d1-d7/a4,-(a7)
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea		airborne_enemies(pc),a4
 	move.w	D0,d5
@@ -4403,12 +4413,24 @@ projectile_enemy_collision
 	add.w	d2,d3
 	cmp.w	d1,d3
 	bcs.b	.no_update
-.y_validated	
-	; enemy hit TODO explosion + score
+.y_validated
+	move.w	xpos(a4),d0
+	move.w	ypos(a4),d1
+	moveq	#1,d2
+	bsr		create_explosion
+	; enemy hit explosion + score
+	lea	rocket_explodes_sound,a0	; TODO not the right sound
+	bsr	play_fx
+	st.b	active(a4)	; last clear, no draw
+	st.b	d0
+	bra.b	.out
 	
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
+	clr.l	d0
+.out
+	movem.l	(a7)+,d1-d7/a4
 	rts
 .stop
 	st.b	active(a4)	; last clear, no draw
