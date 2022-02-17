@@ -93,7 +93,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 3
+START_LEVEL = 2
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -173,7 +173,7 @@ MAX_NB_EXPLOSIONS = 16
 MAX_NB_SCORES = 5
 MAX_NB_AIRBORNE_ENEMIES = 4
 
-SHOT_SPEED = 4
+SHOT_SPEED = 3
 
 ; tile types
 EMPTY_TILE = 0
@@ -2869,6 +2869,7 @@ update_all
 	bsr	update_explosions
 	bsr	update_mystery_scores
 	
+	; enemy update according to level
 	lea		update_table(pc),a0
 	move.w	level_number(pc),d0
 	add.w	d0,d0
@@ -2880,6 +2881,20 @@ update_all
     bsr update_player
     tst.w   player_killed_timer
     bpl.b   .skip_cc     ; player killed, no collisions	
+	cmp.w	#4,level_number
+	bcc.b	.no_airborne_enemies
+
+	lea		player(pc),a4
+	move.w	xpos(a4),d0
+	move.w	ypos(a4),d1
+	move.w	#24,d2
+	move.w	#10,d3
+	addq.w	#8,d0
+	bsr		object_to_enemy_collision
+	tst.b	d0
+	beq.b	.no_airborne_enemies
+	bsr		player_killed
+.no_airborne_enemies
 	
 	tst.b	scroll_stop_flag
 	bne.b	.no_scroll
@@ -4071,7 +4086,8 @@ update_shots:
 	move.w	d3,d0
 	move.w	d4,d1
 	moveq.w	#2,d2	; small dimension
-	bsr		projectile_enemy_collision
+	moveq.w	#2,d3	; small dimension
+	bsr		object_to_enemy_collision
 	tst		d0
 	bne.b	.stop
 .no_update
@@ -4322,7 +4338,8 @@ update_bombs:
 	addq.w	#5,d0
 	addq.w	#5,d1
 	moveq.w	#6,d2	; big dimension
-	bsr		projectile_enemy_collision
+	moveq.w	#6,d3	; big dimension
+	bsr		object_to_enemy_collision
 	tst		d0
 	bne.b	.stop
 .no_update
@@ -4448,12 +4465,17 @@ update_fireballs:
 	bra.b	.no_update
 
 
-; < D0,D1: x,y of bomb/shot
-; < D2: side of bomb/shot (4 for bomb, 2 for shot)
+; what: 16x16 flying object collision with bomb/shot.ship
+; < D0,D1: x,y of bomb/shot/ship
+; < D2: width of colliding object of bomb/shot (4 for bomb, 2 for shot)
+; < D3: height of colliding object
 ; trashes: nothing
-; returns: D0.b	!= 0 if something was hit (to remove shot)
+; returns: D0.b	!= 0 if something was hit
 
-projectile_enemy_collision
+ENEMY_HITBOX_MARGIN = 4
+ENEMY_HITBOX_LEN = 16-2*ENEMY_HITBOX_MARGIN
+
+object_to_enemy_collision
 	; move existing enemies
 	movem.l	d1-d7/a4,-(a7)
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
@@ -4461,14 +4483,15 @@ projectile_enemy_collision
 	move.w	D0,d5
 	move.w	D1,d6
 	add.w	d2,d5
-	add.w	d2,d6	; d0-d5 / d1-d6: X/Y bounding box for projectile
-	move.w	#16,d2	; size of enemy
+	add.w	d3,d6	; d0-d5 / d1-d6: X/Y bounding box for projectile
+	move.w	#ENEMY_HITBOX_LEN,d2	; hitbox size of enemy
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_update
 	bmi.b	.no_update
 
 	move.w	xpos(a4),d3
+	addq.w	#ENEMY_HITBOX_MARGIN,d3
 	cmp.w	d5,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
@@ -4476,6 +4499,7 @@ projectile_enemy_collision
 	bcc.b	.x_validated	; D3+D2 < D5: skip
 	; X is not validated: try lower bound of projectile
 	move.w	xpos(a4),d3
+	addq.w	#ENEMY_HITBOX_MARGIN,d3
 	cmp.w	d0,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
@@ -4484,6 +4508,7 @@ projectile_enemy_collision
 .x_validated
 	; X is validated: same for Y
 	move.w	ypos(a4),d3
+	addq.w	#ENEMY_HITBOX_MARGIN,d3
 	cmp.w	d6,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
@@ -4491,6 +4516,7 @@ projectile_enemy_collision
 	bcc.b	.y_validated	; D3+D2 < D5: skip
 	; X is not validated: try lower bound of projectile
 	move.w	ypos(a4),d3
+	addq.w	#ENEMY_HITBOX_MARGIN,d3
 	cmp.w	d1,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3

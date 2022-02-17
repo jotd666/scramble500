@@ -45,6 +45,7 @@ CREDITS:
 ISSUES:
 
 - maybe vertical speed not enough (level 5)
+- level 2 too easy shots are too fast & frequent
 
 TODO
 
