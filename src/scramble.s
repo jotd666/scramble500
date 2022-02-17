@@ -59,6 +59,7 @@ INTERRUPTS_ON_MASK = $E038
 	STRUCT      BaseCharacter2,Character_SIZEOF
 	ULONG	custom_field_1
 	ULONG	custom_field_2
+	ULONG	custom_field_3
     LABEL   GfxObject_SIZEOF
     
 ; aliases for different kind of objects
@@ -66,7 +67,7 @@ nb_explosion_cycles = custom_field_1
 explosion_type = custom_field_2
 move_index = custom_field_1
 mystery_sprite = custom_field_1
-plane_address = custom_field_2
+plane_address = custom_field_3
     ;Exec Library Base Offsets
 
 
@@ -93,7 +94,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 2
+;START_LEVEL = 2
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -3149,7 +3150,6 @@ update_rockets
 	move.w	d1,d4	; save for later
 	bsr		get_tile_type
 	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)
-	;;bra.b	.no_rocket		; TEMP
 	
 	bne.b	.no_rocket	; rocket has been shot or launched
 	; there's a rocket to be launched
@@ -3197,9 +3197,8 @@ update_rockets
 .no_scroll
 	move.w	d0,xpos(a4)
 	move.w	d1,ypos(a4)
-	sub.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,plane_address(a4)
-	; test if hitting player	
-
+	; change plane address too (draw doesn't use coords in scroll planes)
+	sub.l   #NB_BYTES_PER_SCROLL_SCREEN_LINE,plane_address(a4)
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
@@ -3891,10 +3890,11 @@ create_fireball:
 	movem.l	(a7)+,d0/d7/a4
 	rts
 	
+; > D7: 0 okay, can be populated with screen address
 create_flying_rocket:
-	movem.l	d0/d7/a4,-(a7)
+	movem.l	d0/a4,-(a7)
 	bsr.b	create_enemy
-	movem.l	(a7)+,d0/d7/a4
+	movem.l	(a7)+,d0/a4
 	rts
 	
 create_enemy
@@ -4465,7 +4465,7 @@ update_fireballs:
 	bra.b	.no_update
 
 
-; what: 16x16 flying object collision with bomb/shot.ship
+; what: 16x16 flying object collision with bomb/shot/ship
 ; < D0,D1: x,y of bomb/shot/ship
 ; < D2: width of colliding object of bomb/shot (4 for bomb, 2 for shot)
 ; < D3: height of colliding object
@@ -4657,6 +4657,7 @@ draw_shots:
 
 	
 draw_flying_rockets:
+	
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea	airborne_enemies(pc),a4
 .loop	

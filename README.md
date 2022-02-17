@@ -44,15 +44,13 @@ CREDITS:
 
 ISSUES:
 
-- maybe vertical speed not enough (level 5)
-- level 2 too easy shots are too fast & frequent
+- maybe vertical speed not enough (level 5 is impossible?)
 
 TODO
 
 - start music: play on separate screen (player one get ready)
 - specific sound loops per levels
 - flying rockets
-- asteroids
 - animated base
 - hide stars in levels with ceiling (2,5)
 - option to fire and bomb with 1 button
