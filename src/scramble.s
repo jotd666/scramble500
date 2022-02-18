@@ -87,7 +87,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 
 ;HIGHSCORES_TEST
@@ -1139,6 +1139,7 @@ draw_debug
     bsr write_decimal_number
     move.l  d4,d0
 	
+	IFEQ	1
 	lea	shots,a2
     lea .sx(pc),a0
     add.w  #8,d1
@@ -1161,7 +1162,7 @@ draw_debug
     move.w  #3,d3
     bsr write_decimal_number
     move.l  d4,d0
-    ;;
+    ENDC
 
 	lea	bombs,a2
     lea .bx(pc),a0
@@ -1186,15 +1187,33 @@ draw_debug
     bsr write_decimal_number
     move.l  d4,d0
     ;;
-
+	; count airborne slots
+	lea	airborne_enemies,a4
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	clr.l	d2
+.loop
+	tst.b	active(a4)
+	beq.b	.next
+	addq.l	#1,d2
 	
+.next
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
   
+    lea .nbe(pc),a0
+    add.w  #8,d1
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    move.w  #2,d3
+    bsr write_decimal_number	
     ;;
     ;;
 
 
     rts
-    
+.nbe
+		dc.b	"NMES ",0
 .px
         dc.b    "PX ",0
 .py
@@ -3026,7 +3045,13 @@ draw_scrolling_tiles
 	bra.b	.no_end
 .level_completed
 	addq.w	#1,level_number
-	st.b	next_level_flag	
+	st.b	next_level_flag
+	moveq.w	#1,d0
+	cmp.w	#1,level_number
+	bne.b	.no_special_sound_loop
+	moveq.w	#2,d0
+.no_special_sound_loop
+	bsr		play_music
 .no_end
 	move.l	a6,map_pointer
 	
@@ -4635,7 +4660,7 @@ draw_shots:
 
 	
 draw_flying_rockets:
-	
+	rts
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea	airborne_enemies(pc),a4
 .loop	
@@ -4645,7 +4670,7 @@ draw_flying_rockets:
 
 	move.w	frame(a4),d0
 	and.w	#$10,d0
-	lsr.w	#3,d0	; 0 or 2 each 16 frames
+	lsr.w	#2,d0	; 0 or 4 each 16 frames
 .okay
 	lea		flying_rocket_sprite_table(pc),a0
 	move.l	(a0,d0.w),a0	; get proper frame
