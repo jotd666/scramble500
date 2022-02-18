@@ -87,7 +87,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 
 ;HIGHSCORES_TEST
@@ -485,7 +485,15 @@ intro:
 .wait_fire_release
     move.l  joystick_state(pc),d0
     btst    #JPB_BTN_RED,d0
-    bne.b   .wait_fire_release    
+    bne.b   .wait_fire_release
+
+	st.b	play_start_music_message
+	clr.b	display_player_one_message
+	move.w	#4*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,start_music_countdown
+.wait_end_of_music
+	cmp.w	#STATE_PLAYING,current_state
+	bne.b	.wait_end_of_music
+	
 .restart    
     lea _custom,a5
     move.w  #$7FFF,(intena,a5)
@@ -523,14 +531,7 @@ intro:
 	
     bsr wait_bof
 
-	move.w	#1,loop_sound_delay
 	
-    move.w  level_number(pc),d0
-	bne.b	.no_delay
-    tst.b   new_life_restart
-    bne.b	.no_delay
-	move.w	#ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2,loop_sound_delay
-.no_delay
 	; set playfield modulo in scroll mode
     move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE,bpl2mod(a5)
 	bsr	init_bitplanes_copperlist
@@ -1222,6 +1223,19 @@ draw_all
 .game_start_screen
     tst.l   state_timer
     beq.b   draw_start_screen
+	
+	tst.b	display_player_one_message
+	beq.b	.no_play
+	clr.b	display_player_one_message
+    bsr clear_screen
+    bsr	clear_playfield_planes
+	lea	player_one_string(pc),a0
+	move.w	#72,d0
+	move.w	#160-24,d1
+    move.w  #$FFF,d2
+    bsr write_color_string
+.no_play
+
     rts
     
 .life_lost
@@ -1240,7 +1254,7 @@ PLAYER_ONE_Y = 102-14
 
     move.w  #72,d0
     move.w  #136,d1
-    move.w  #$0f00,d2   ; red
+    move.w  #WHITE_COLOR,d2   ; red
     lea player_one_string(pc),a0
     bsr write_color_string
     move.w  #72,d0
@@ -2644,7 +2658,6 @@ toggle_pause
 	eor.b   #1,pause_flag
 	beq.b	.out
 	bsr		stop_sounds
-	move.w	#1,start_music_countdown	; music will resume when unpaused
 .out
 	rts
 	
@@ -2788,11 +2801,20 @@ update_all
     
     
 .game_start_screen
-    tst.l   state_timer
-    bne.b   .out
-    addq.l   #1,state_timer
+	addq.l	#1,state_timer
+	tst.b	play_start_music_message
+	beq.b	.no_play
+	moveq	#0,d0
+    bsr.b	play_music
+	clr.b	play_start_music_message
+	st.b	display_player_one_message
+.no_play	
+	move.w	start_music_countdown(pc),d0
+	subq.w	#1,d0
+	bne.b	.out
+	move.w	#STATE_PLAYING,current_state
 .out
-
+	move.w	d0,start_music_countdown
 .continue
     rts
     
@@ -2835,14 +2857,7 @@ update_all
 
     tst.l   state_timer
     bne.b   .no_first_tick
-    st.b   .intro_music_played
-	
-
-    ; first level: play start music
-    clr.b   .intro_music_played
-    
-	moveq	#0,d0
-    bsr.b	play_music
+	nop
 
 .no_first_tick
     ; for demo mode
@@ -2860,10 +2875,6 @@ update_all
 .no_palette_change
 	move.w	d0,playfield_palette_timer
 	
-	tst.w	loop_sound_delay
-	;beq.b	.no_sound_loop_start
-	; TODO: play module but from the proper sound loop point
-;.no_sound_loop_start
 
 	bsr	update_shots
 	bsr	update_bombs
@@ -3241,39 +3252,6 @@ check_collisions
 
 	rts
 	
-	
-
-	
-    lea player(pc),a3
-    move.l  xpos(a3),d0	; get X<<16 | Y
-	moveq.l	#3,d3		; pre-load shift value
-    lsr.l   d3,d0		; shift both X and Y
-	move.w	#$1FFF,d1	; pre-load mask value
-	and.w	d1,d0	; remove shifted X bits that propagated to Y LSW
-    ;;lea enemies(pc),a4
-    ;;move.w  nb_enemies_but_thief(pc),d7    ; plus one
-.gloop
-	; this is probably much faster than shifting X & Y to compute tile
-    move.l  xpos(a4),d2		; get X and Y, same as for player (see above)
-    lsr.l   d3,d2		; one shift
-	and.w	d1,d2		; small masking operation
-    cmp.l   d2,d0		; one comparison
-    beq.b   .collision
-
-    ;;add.w   #Enemy_SIZEOF,a4
-    dbf d7,.gloop
-    rts
-.collision
-    ; player is killed
-    tst.b   invincible_cheat_flag
-    bne.b   .nomatch
-    move.w  #PLAYER_KILL_TIMER,player_killed_timer
-    clr.w   enemy_kill_timer
-    move.w  #KILL_FIRST_FRAME,enemy_kill_frame
-.nomatch
-    bsr stop_sounds
-    lea     player_killed_sound(pc),a0
-    bra     play_fx
    
 player_killed:
     tst.b   invincible_cheat_flag
@@ -4846,24 +4824,27 @@ draw_ufos:
 	
 erase_flying_rockets:
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
-	lea	airborne_enemies(pc),a0
+	lea	airborne_enemies(pc),a4
 	; 0 coords (we're using exact bitplane addresses)
 	clr.w	d0
 	clr.w	d1
 	moveq.w	#4,d2	; 4 bytes: blitter width 16 bits + 16 extra shift bits
 .loop
-	tst.b	active(a0)
+	tst.b	active(a4)
 	beq.b	.no_erase
 
-    move.l  previous_address(a0),d5
+	
+    move.l  previous_address(a4),d5
     bne.b   .not_first_draw
     moveq.l #-1,d5
 	bra.b	.no_erase
 .not_first_draw
-	; 2 planes
+	lea		empty_16x16_bob,a0
+	move.l	d5,a1
+	bsr		blit_16x16_scroll_object_no_cookie_cut
 
 .no_erase
-	add.w	#GfxObject_SIZEOF,a0
+	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
 	rts
 	
@@ -6105,13 +6086,15 @@ fuel:
 	dc.w	0
 low_fuel_sound_timer
 	dc.w	0
-loop_sound_delay
-	dc.w	0
 fireball_sound_timer
 	dc.w	0
 nb_missions_completed
 	dc.w	0
 	
+play_start_music_message:
+	dc.b	0
+display_player_one_message
+	dc.b	0
 draw_tile_column_message
 	dc.b	0
 nb_lives:

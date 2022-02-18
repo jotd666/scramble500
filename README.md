@@ -45,10 +45,10 @@ CREDITS:
 ISSUES:
 
 - maybe vertical speed not enough (level 5 is impossible?)
+- explosion removal disabled by rockets flying somehow...
 
 TODO
 
-- start music: play on separate screen (player one get ready)
 - specific sound loops per levels
 - flying rockets
 - animated base
