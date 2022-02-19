@@ -29,7 +29,13 @@ CONTROLS:
 
 HOW TO PLAY:
 
-
+- all levels: shoot/bomb everything! don't miss fuel tanks to avoid running out of fuel
+- level 1: avoid landscape and flying rockets
+- level 2: shoot UFOs
+- level 3: avoid fireballs
+- level 4: same as 1, just more difficult
+- level 5: navigate up and down without hitting the walls
+- level 6: destroy base
 
 CREDITS:
 
@@ -44,18 +50,21 @@ CREDITS:
 
 ISSUES:
 
-- maybe vertical speed not enough (level 5 is impossible?)
-- explosion removal disabled by rockets flying somehow...
+- maybe vertical speed not enough (level 5 is impossible but see below!!)
+- level 5 bottom part is too low which probably explains why it's impossible
+- level 4/5 filler should not be used for restarting low ground (use empty tiles)
+- level 4/5 filler is reverted (brick then square) in the bottom section
+- explosion removal disabled by rockets flying somehow... / explosion
+  /ufos graphics trashed (thanks to flying rockets erasure effect). RANDOM ARGGGHGHHH
 
 TODO
 
 - specific sound loops per levels
-- flying rockets
 - animated base
 - hide stars in levels with ceiling (2,5)
-- option to fire and bomb with 1 button
+- option to fire and bomb with 1 button (selection on "player one" get ready screen)
 - bombing anything: bomb explodes briefly and sound is covered by object explosion
-- shooting rockets: higher explosion
+- shooting rockets: higher-pirched explosion
 - shooting mystery/sound: long explosion
 
 BUILDING FROM SOURCES:

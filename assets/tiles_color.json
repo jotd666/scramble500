@@ -164,6 +164,11 @@
  "start_x":121,
  "start_y":79
 },
+{"name":"rocket_mask",
+ "sprite_palette":[[0, 0, 0],[0,0,208]],
+ "start_x":176,
+ "start_y":138
+},
 {"name":"levels_25",
 "start_x":1,
 "start_y":181,

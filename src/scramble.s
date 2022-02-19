@@ -87,14 +87,14 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 
 ;HIGHSCORES_TEST
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 2
+START_LEVEL = 5
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -1280,8 +1280,8 @@ PLAYER_ONE_Y = 102-14
     add.w   #16,d1
     lea game_over_string(pc),a0
     bsr write_color_string
-    
     bra.b   .draw_complete
+	
 .playing
 	; main game draw
 	; draw/update scrolling must absolutely
@@ -1293,8 +1293,10 @@ PLAYER_ONE_Y = 102-14
 
 	tst.b	next_level_flag
 	beq.b	.same_level
+	; level change, remove remaining flying enemies
 	bsr	erase_enemies
 	bsr	free_enemy_slots
+	; draw current progress (top screen map)
 	bsr		draw_current_level
 	clr.b	next_level_flag
 .same_level
@@ -2536,8 +2538,8 @@ saved_intena
 ; F2: toggle invincibility
 ; F3: toggle infinite lives
 ; F4: show debug info
-; F5: 
-; F6: 
+; F5: toggle infinite fuel
+; F6: stop scrolling (and no fuel depletion)
 ; F8: 
 ; F9: 
 ; TAB: fast-forward (no player controls during that)
@@ -2633,9 +2635,9 @@ level2_interrupt:
     bra.b   .no_playing
 .no_debug
     cmp.b   #$54,d0     ; F5
-    bne.b   .no_bonus
-	nop
-.no_bonus
+    bne.b   .no_fuel
+	eor.b	#1,no_fuel_depletion_flag
+.no_fuel
     cmp.b   #$55,d0     ; F6
     bne.b   .no_scroll_stop_toggle
     ; free cheat slot
@@ -3162,6 +3164,7 @@ update_rockets
 	move.b	d0,enemy_launch_cyclic_counter
 	and.b	#$3F,d0
 	bne.b	.no_launch
+	LOGPC	100
 	; check if a rocket is ready to launch
 	;;airborne_enemies
 	; see if there are rockets that we could launch that
@@ -3174,31 +3177,31 @@ update_rockets
 	move.w	#136/8-1,d2	; 17 slots to check
 .check
 	move.w	(a2)+,d1	; y of rocket
-	subq.w	#8,d1		; correction
 	beq.b	.no_rocket
+	subq.w	#8,d1		; correction
 	move.l	a2,d0
 	; now we have to check if that rocket wasn't destroyed
 	sub.l	a1,d0	; convert to tile offset to make X
 	add.w	d0,d0
 	add.w	d0,d0	; times 4 to get proper X value
-	subq.w	#8,d0
+	addq.w	#8,d0	; correction
 	move.w	d0,d3
 	move.w	d1,d4	; save for later
 	bsr		get_tile_type
-	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)
-	
+	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)	
 	bne.b	.no_rocket	; rocket has been shot or launched
 	; there's a rocket to be launched
 	; remove y from list
 	clr.w	(-2,a2)
 	; launch a rocket
+	subq.w	#8,d3
 	move.w	d3,d0
 	move.w	d4,d1
 	bsr		create_flying_rocket
 	tst.w	d7
 	bmi.b	.no_rocket	; no slot available
 	; success!
-	; remove object from playfield
+	; remove object from playfield (and from logical map)
 	move.w	d3,d0
 	move.w	d4,d1
 	bsr		remove_object
@@ -3618,6 +3621,10 @@ update_player
 .alive
 	move.b	fuel_depetion_current_timer(pc),d0
 	subq.b	#1,d0
+	bne.b	.no_fuel_dec
+	tst.b	no_fuel_depletion_flag
+	bne.b	.no_fuel_dec
+	tst.b	scroll_stop_flag
 	bne.b	.no_fuel_dec
 	move.w	#-1,d0
 	bsr		add_to_fuel
@@ -4660,7 +4667,6 @@ draw_shots:
 
 	
 draw_flying_rockets:
-	rts
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea	airborne_enemies(pc),a4
 .loop	
@@ -4684,9 +4690,9 @@ draw_flying_rockets:
 	dbf		d7,.loop
 	rts
 .clear
-	; last draw of that object, clears it
+	; last draw of that object
+	; erase_flying_rockets did the job, just ack the flag
 	clr.b	active(a4)
-	lea	 empty_16x16_bob,a0
 	bra.b	.draw
 	
 erase_explosions:
@@ -4705,26 +4711,22 @@ erase_bombs:
 	lea	bombs(pc),a0
 erase_16x16_objects:	
 	; 0 coords (we're using exact bitplane addresses)
-	clr.w	d0
-	clr.w	d1
-	moveq.w	#4,d2	; 4 bytes: blitter width 16 bits + 16 extra shift bits
+	clr.l	d0
+	clr.l	d1
+	moveq.l	#4,d2	; 4 bytes: blitter width 16 bits + 16 extra shift bits
 .loop
 	tst.b	active(a0)
 	beq.b	.no_erase
 
     move.l  previous_address(a0),d5
-    bne.b   .not_first_draw
-    moveq.l #-1,d5
-	bra.b	.no_erase
-.not_first_draw
+    beq.b   .no_erase
 
     ; first, restore plane 0
     ; erase plane 0
-    lea screen_data,a1
-    sub.l   a1,d5       ; d5 is now the offset
+  
 	bclr	#0,d5		; align on even planes
-	add.w	d5,a1
-	
+	move.l	d5,a1
+
 	; first clear using the blitter
 	bsr.b	clear_plane_any_blitter
 	
@@ -4850,23 +4852,19 @@ draw_ufos:
 erase_flying_rockets:
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea	airborne_enemies(pc),a4
-	; 0 coords (we're using exact bitplane addresses)
-	clr.w	d0
-	clr.w	d1
-	moveq.w	#4,d2	; 4 bytes: blitter width 16 bits + 16 extra shift bits
 .loop
 	tst.b	active(a4)
 	beq.b	.no_erase
-
 	
     move.l  previous_address(a4),d5
-    bne.b   .not_first_draw
-    moveq.l #-1,d5
-	bra.b	.no_erase
+	beq.b	.no_erase
 .not_first_draw
-	lea		empty_16x16_bob,a0
+	; we can't just erase a big square around the rocket as
+	; that would destroy landscape & other objects around launching site
+	; instead we blit an empty bob with a mask made of rocket enveloppe
+	lea		flying_rocket_mask,a0
 	move.l	d5,a1
-	bsr		blit_16x16_scroll_object_no_cookie_cut
+	bsr		blit_16x16_scroll_object
 
 .no_erase
 	add.w	#GfxObject_SIZEOF,a4
@@ -5344,7 +5342,7 @@ blit_plane_any_internal_cookie_cut:
 ; trashes: D0-D1
 
 blit_16x16_scroll_object_no_cookie_cut
-    movem.l d2-d7/a2-a5,-(a7)
+    movem.l d2-d7/a2-a3/a5,-(a7)
     lea $DFF000,A5
 	move.l	a1,d1
 	moveq.l #-1,d3	;masking of first/last word : no mask   
@@ -5421,21 +5419,21 @@ blit_16x16_scroll_object_no_cookie_cut
 	move.l a3,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
 	
-    movem.l (a7)+,d2-d7/a2-a5
+    movem.l (a7)+,d2-d7/a2-a3/a5
     rts
     
 
 ; what: blits 16x16 data 2 planes/2 locations, no shifting
 ; args:
 ; < A0: 2-plane source (16x16) with mask as third plane
-; < A1: destination (56 rows, assuming address is correct (no XY))
+; < A1: destination (56 rows, assuming address is correct (no X,Y in D0/D1))
 ;       but can be odd (so 8 bits shifting will be added)
 
 ; (will use A1 as background for cookie cut too)
 ; trashes: D0-D1
 
 blit_16x16_scroll_object
-    movem.l d2-d7/a2-a5,-(a7)
+    movem.l d2-d7/a0-a5,-(a7)
     lea $DFF000,A5
 	move.l	a1,d1
 	moveq.l #-1,d3	;masking of first/last word : no mask   
@@ -5482,7 +5480,9 @@ blit_16x16_scroll_object
 
 
 	; now compute mirror rect (scrolling)
-	; for this we need to know the offset
+	; for this we need to know if the currently passed 
+	; address is first half of scroll buffer or second
+	; so we can compute the mirror address and replicate the draw
 	move.l	a1,a3
 	sub.w	#NB_BYTES_PER_PLAYFIELD_LINE,a3
 	cmp.l	#scroll_data,a3
@@ -5502,7 +5502,6 @@ blit_16x16_scroll_object
 
 	; now second plane
 	add.w	#SCROLL_PLANE_SIZE,a1
-	add.w	#SCROLL_PLANE_SIZE,a3
 
 	; let a0 point to graphics second plane
 	lea	(BOB_16X16_PLANE_SIZE,a0),a0
@@ -5514,6 +5513,9 @@ blit_16x16_scroll_object
 	move.l a1,bltcpt(a5)	;pristine background
 	move.l a1,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+
+	; now second plane
+	add.w	#SCROLL_PLANE_SIZE,a3
 	
 	WAIT_BLITTER
 
@@ -5523,7 +5525,7 @@ blit_16x16_scroll_object
 	move.l a3,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
 	
-    movem.l (a7)+,d2-d7/a2-a5
+    movem.l (a7)+,d2-d7/a0-a5
     rts
     
 
@@ -6162,6 +6164,8 @@ scroll_stop_flag
 	dc.b	0
 demo_mode
     dc.b    0
+no_fuel_depletion_flag
+	dc.b	0
 extra_life_awarded
     dc.b    0
 music_played
@@ -6625,6 +6629,9 @@ flying_rocket_1:
 	incbin	"rocket_1.bin"
 flying_rocket_2:
 	incbin	"rocket_2.bin"
+flying_rocket_mask
+	ds.w	64,0	; 2 empty planes, then mask
+	incbin	"rocket_mask.bin"
 	
 score_100
 	incbin	"score_100.bin"
