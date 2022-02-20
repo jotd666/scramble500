@@ -49,6 +49,7 @@ INTERRUPTS_ON_MASK = $E038
 	UWORD	ypos
     UWORD   frame
 	UWORD	active
+	UWORD	extra_y_counter
 	LABEL	Character_SIZEOF
 
 	STRUCTURE	Player,0
@@ -87,14 +88,14 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 
 ;HIGHSCORES_TEST
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 5
+;START_LEVEL = 5
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -302,7 +303,8 @@ ADD_XY_TO_A1:MACRO
 Start:
         ; if D0 contains "WHDL"
         ; A0 contains resload
-        
+        move.l	#ufo,$100
+        move.l	#level_number_tiles,$104
     cmp.l   #'WHDL',D0
     bne.b   .standard
     move.l a0,_resload
@@ -828,6 +830,11 @@ init_new_play:
 	clr.w	nb_missions_completed
 	
     move.b  #START_NB_LIVES,nb_lives
+	IFD		DIRECT_GAME_START
+	; doesn't have the start screen, we need to make up
+	; for the extra life display & life removal
+	subq.b	#1,nb_lives
+	ENDC
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
@@ -1030,14 +1037,10 @@ init_enemies
 
 
 init_player:
-	lea	bombs,a0
-	move.w	#MAX_NB_BOMBS-1,d0
-.bombclr
-	clr.b	active(a0)
-	add.w	#GfxObject_SIZEOF,a0
-	dbf	d0,.bombclr
-	
-	
+	lea	bombs,a4
+	move.w	#MAX_NB_BOMBS-1,d7
+	bsr	free_all_slots
+
     clr.w   death_frame_offset
 	clr.w	fireball_sound_timer
 	move.w	#1,low_fuel_sound_timer
@@ -1064,7 +1067,9 @@ init_player:
     lea player,a0
 
     clr.l   previous_address(a0)   ; no previous position
-   
+	clr.w	extra_y_counter(a0)
+	
+
     move.w  #8+X_SHIP_MIN,xpos(a0)
 	move.w	#60,ypos(a0)
     
@@ -1253,6 +1258,9 @@ draw_all
 	move.w	#160-24,d1
     move.w  #$FFF,d2
     bsr write_color_string
+	; artifically display all 3 lives at start
+	bsr	draw_lives
+	; real number of remaining lives (plus the one in play)
 .no_play
 
     rts
@@ -1294,6 +1302,8 @@ PLAYER_ONE_Y = 102-14
 	tst.b	next_level_flag
 	beq.b	.same_level
 	; level change, remove remaining flying enemies
+	move.w	level_number(pc),d0
+	subq.w	#1,d0		; erase previous level enemies
 	bsr	erase_enemies
 	bsr	free_enemy_slots
 	; draw current progress (top screen map)
@@ -1303,6 +1313,8 @@ PLAYER_ONE_Y = 102-14
 	bsr	erase_bombs
 	
 	; erase stuff depending on the level
+	move.w	level_number(pc),d0
+
 	bsr	erase_enemies
 	bsr	erase_explosions
     bsr draw_player
@@ -1370,8 +1382,8 @@ stop_sounds
     clr.b   music_playing
     bra _mt_end
 
+; < D0: level number
 erase_enemies:
-	move.w	level_number(pc),d0
 	add.w	d0,d0
 	add.w	d0,d0
 	lea		erase_table(pc),a0
@@ -1445,7 +1457,7 @@ draw_tiles:
 	subq.w	#1,d2
 	
 	move.w	(a6)+,d1	; y start
-	add.w	#24,d1		; add offset
+	add.w	#16,d1		; add offset
 	; clear the space above ground
 	move.l	a1,a2
 	lea		(SCROLL_PLANE_SIZE,a1),a3
@@ -1479,7 +1491,7 @@ draw_tiles:
 	bsr		.copy_tile
 
 	dbf		d2,.lowerloop
-	move.w	#Y_MAX,d7
+	move.w	#Y_MAX-8,d7
 	bsr.b		.fill
 
 
@@ -2288,7 +2300,7 @@ draw_fuel:
 fuel_text
 	dc.b	"FUEL",0
 	even
-LIVES_OFFSET = 236*NB_BYTES_PER_LINE
+LIVES_OFFSET = 236*NB_BYTES_PER_LINE+2
 
 draw_last_life
     move.w   #1,d0      ; draw only last life
@@ -2371,12 +2383,16 @@ draw_ground:
 	; draw_tiles will write zero to (a4)
 	; as there is only ground, but we still need this address to be valid	
 	lea		screen_ground_rocket_table,a4
+	; clear level number so draw_tiles won't fill with bricks
+	; in higher levels
+	move.w	level_number(pc),-(a7)
+	clr.w	level_number
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
 	addq.w	#1,a5
 	dbf	d7,.tileloop
-	
+	move.w	(a7)+,level_number
 	rts
 	
 	
@@ -3164,7 +3180,6 @@ update_rockets
 	move.b	d0,enemy_launch_cyclic_counter
 	and.b	#$3F,d0
 	bne.b	.no_launch
-	LOGPC	100
 	; check if a rocket is ready to launch
 	;;airborne_enemies
 	; see if there are rockets that we could launch that
@@ -3227,7 +3242,7 @@ update_rockets
 	move.w	ypos(a4),d1
 	subq.w	#1,d1	; up
 	subq.w	#1,d0	; left
-	cmp.w	#Y_SHIP_MIN,d1
+	cmp.w	#Y_SHIP_MIN-8,d1
 	bcs.b	.stop_rocket
 	tst.b	scroll_stop_flag
 	bne.b	.no_scroll
@@ -3742,17 +3757,48 @@ update_player
 .no_right
     btst    #JPB_BTN_LEFT,d0
     beq.b   .vertical
-    subq.w  #1,d2 
+    subq.w  #1,d2
+	; here goes the infamous vertical tweak
+	;
+	; I don't know if it's a sprite vs playfield thing but
+	; the original game vertical speed is greater than the horizontal
+	; speed. Original source code doesn't explain that (1 is added/subbed
+	; identically from X or Y axis). But if we don't add 1 one out of 4 times
+	; the vertical speed isn't correct and even if it's not noticeable
+	; in most stages, level 5 is near to impossible to pull through without
+	; the extra speed, whether in the arcade game it's possible to master the
+	; tunnel moves with a bit of training and never fail.
+	;
+	; I'm convinced that it is hardware related (and maybe amidar has
+	; the same behaviour) because rockets and bombs have the same speed
+	; as the ship.
+	
 .vertical
     btst    #JPB_BTN_UP,d0
     beq.b   .no_up
     subq.w  #1,d3
+	move.w	extra_y_counter(a4),d5
+	addq.w	#1,d5
+	cmp.w	#4,d5
+	bne.b	.no_extra_y_1
+	clr.w	d5
+	subq.w	#1,d3	
+.no_extra_y_1
+	move.w	d3,extra_y_counter(a4)
     bra.b   .out
 .no_up
 
     btst    #JPB_BTN_DOWN,d0
     beq.b   .no_down
     addq.w  #1,d3
+	move.w	extra_y_counter(a4),d5
+	addq.w	#1,d5
+	cmp.w	#4,d5
+	bne.b	.no_extra_y_2
+	clr.w	d5
+	addq.w	#1,d3	
+.no_extra_y_2
+	move.w	d3,extra_y_counter(a4)
 .no_down
 .out
 .no_move
@@ -3892,7 +3938,9 @@ create_fireball:
 	movem.l	d0/d7/a4,-(a7)
 	bsr		random
 	and.w	#$7F,d0
-	add.w	#Y_SHIP_MIN,d0
+	; not too low, else the fireballs will cross the highest
+	; mountain edges and game becomes unfair!
+	add.w	#Y_SHIP_MIN-8,d0
 	move.w	d0,d1
 	move.w	#X_MAX,d0
 	bsr.b	create_enemy
@@ -3916,6 +3964,7 @@ create_enemy
 	bmi.b	.no_fly	; no more slots
 	
 	clr.w	frame(a4)
+	clr.w	extra_y_counter(a4)
 	; init bomb with ship position plus something
 	move.w	d0,xpos(a4)
 	move.w	d1,ypos(a4)

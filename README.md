@@ -50,12 +50,17 @@ CREDITS:
 
 ISSUES:
 
-- maybe vertical speed not enough (level 5 is impossible but see below!!)
-- level 5 bottom part is too low which probably explains why it's impossible
-- level 4/5 filler should not be used for restarting low ground (use empty tiles)
+- level 5 bottom part was too low
+  fixing this changes other parts so maybe there's a disrepancy 
+  (also because ground level varies between levels)
 - level 4/5 filler is reverted (brick then square) in the bottom section
 - explosion removal disabled by rockets flying somehow... / explosion
   /ufos graphics trashed (thanks to flying rockets erasure effect). RANDOM ARGGGHGHHH
+- ufo collisions not working most of the time
+- collisions with ceiling not right, make it nicer
+- shooting base of fuel tanks doesn't destroy them (level 5)
+- check initial y positions / landscape (level 1, and others)
+- apply +20% speed on all objects (ufos, rockets, bombs)
 
 TODO
 
