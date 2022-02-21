@@ -55,9 +55,6 @@ CREDITS:
 
 ISSUES:
 
-- rockets that are very low in landscape disappear too soon / kill ship
-  and trash memory: lock scroll to test!!!!!!
-  
 - level 5 bottom part was too low
   fixing this changes other parts so maybe there's a disrepancy 
   (also because ground level varies between levels)
@@ -65,7 +62,7 @@ ISSUES:
 - explosion removal disabled by rockets flying somehow... / explosion
   /ufos graphics trashed (thanks to flying rockets erasure effect). RANDOM ARGGGHGHHH
 - ufo collisions not working most of the time
-- collisions with ceiling not right, make it nicer
+- collisions with ceiling not right, make it more laxist
 - shooting base of fuel tanks doesn't destroy them (level 5)
 - check initial y positions / landscape (level 1, and others)
 - apply +20% speed on all objects (ufos, rockets, bombs) see if needed
@@ -76,9 +73,8 @@ TODO
 
 - animated base / explosion when desroying it
 - hide stars in levels with ceiling (2,5)
-- option to fire and bomb with 1 button (selection on "player one" get ready screen)
 - bombing anything: bomb explodes briefly and sound is covered by object explosion
-- shooting rockets: higher-pirched explosion
+- shooting rockets: higher-pitched explosion
 - shooting mystery/sound: long explosion
 
 BUILDING FROM SOURCES:

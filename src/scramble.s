@@ -84,22 +84,18 @@ Execbase  = 4
 
 ; ---------------debug/adjustable variables
 
-; check stuff
-
-DEBUG_BUILD
-
 ; uncomment to mark scroll columns with letters	
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 
 ;HIGHSCORES_TEST
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 6
+START_LEVEL = 5
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -305,10 +301,8 @@ ADD_XY_TO_A1:MACRO
 
     
 Start:
-        ; if D0 contains "WHDL"
-        ; A0 contains resload
-        move.l	#ufo,$100
-        move.l	#level_number_tiles,$104
+	; if D0 contains "WHDL"
+	; A0 contains resload
     cmp.l   #'WHDL',D0
     bne.b   .standard
     move.l a0,_resload
@@ -589,10 +583,13 @@ intro:
 	tst.b	do_restart_game_message
 	beq.b	.mainloop
 	clr.b	do_restart_game_message
-	; awatd extra life
+	; award extra life
 	addq.b	#1,nb_lives
 	; one more mission under the belt
 	addq.w	#1,nb_missions_completed
+	; restart at level 1
+	clr.w	level_number
+	bsr	update_level_data
     bra.b   .new_mission
 .life_lost
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -833,7 +830,6 @@ clear_scroll_plane
     rts
 
 update_level_data
-
 	move.w	#10,d1
 	move.w	nb_missions_completed(pc),d0
 	beq.b	.store
@@ -1350,6 +1346,9 @@ PLAYER_ONE_Y = 102-14
 	beq.b	.same_level
 	; level change, remove remaining flying enemies
 	move.w	level_number(pc),d0
+	bne.b	.no_first
+	moveq.w	#6,d0
+.no_first
 	subq.w	#1,d0		; erase previous level enemies
 	bsr	erase_enemies
 	bsr	free_enemy_slots
@@ -3242,11 +3241,7 @@ draw_scrolling_tiles
 .no_new_tiles	
 	rts
 	
-mission_completed:
-	clr.w	level_number
-    addq.w   #1,nb_missions_completed
-	bsr		update_level_data
-	rts
+
 	
 update_scrolling
 	; now we have to copy what we just created so when we
@@ -3349,10 +3344,12 @@ update_rockets
 	subq.w	#8,d3
 	move.w	d3,d0
 	move.w	d4,d1
-	bsr		create_flying_rocket
+	; create flying rocket
+	bsr.b	create_enemy
 	tst.w	d7
 	bmi.b	.no_rocket	; no slot available
 	; success!
+	; returns A4 if successfully created
 	; remove object from playfield (and from logical map)
 	move.w	d3,d0
 	move.w	d4,d1
@@ -3388,8 +3385,10 @@ update_rockets
 .no_scroll
 	move.w	d0,xpos(a4)
 	move.w	d1,ypos(a4)
+	move.l	plane_address(a4),d0
 	; change plane address too (draw doesn't use coords in scroll planes)
-	sub.l   #NB_BYTES_PER_SCROLL_SCREEN_LINE,plane_address(a4)
+	sub.l   #NB_BYTES_PER_SCROLL_SCREEN_LINE,d0
+	move.l	d0,plane_address(a4)
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
 	dbf		d7,.loop
@@ -3924,7 +3923,7 @@ update_player
 	clr.w	d5
 	subq.w	#1,d3	
 .no_extra_y_1
-	move.w	d3,extra_y_counter(a4)
+	move.w	d5,extra_y_counter(a4)
     bra.b   .out
 .no_up
 
@@ -3938,7 +3937,7 @@ update_player
 	clr.w	d5
 	addq.w	#1,d3	
 .no_extra_y_2
-	move.w	d3,extra_y_counter(a4)
+	move.w	d5,extra_y_counter(a4)
 .no_down
 .out
 .no_move
@@ -4088,12 +4087,6 @@ create_fireball:
 	movem.l	(a7)+,d0/d7/a4
 	rts
 	
-; > D7: 0 okay, can be populated with screen address
-create_flying_rocket:
-	movem.l	d0/a4,-(a7)
-	bsr.b	create_enemy
-	movem.l	(a7)+,d0/a4
-	rts
 	
 create_enemy
 	; check if there's a free slot, here first or second
@@ -4447,7 +4440,7 @@ remove_object
 	add.w	d2,a1
 
 	lea		mulNB_BYTES_PER_SCROLL_SCREEN_LINE_table(pc),a0
-	add.w	#8,d1	; y shift (empiric)
+	addq.w	#8,d1	; y shift (empiric)
 	add.w	d1,d1
 	; add y offset
 	add.w	(a0,d1.w),a1
@@ -5635,18 +5628,6 @@ blit_16x16_scroll_object
     movem.l d2-d7/a0-a5,-(a7)
     lea $DFF000,A5
 	move.l	a1,d1
-	IFD	DEBUG_BUILD
-	cmp.l	#$80000,a0
-	bcs.b	.ok
-	trap	#0
-.ok
-	tst	d1
-	bmi.b	.pb
-	bne.b	.ok2
-.pb
-	trap	#1
-.ok2
-	ENDC
 	moveq.l #-1,d3	;masking of first/last word : no mask   
     moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
     move.w  #16,d4      ; 16 pixels height   

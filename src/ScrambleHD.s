@@ -63,7 +63,7 @@ _data   dc.b    0
 _name	dc.b	'Scramble',0
 _copy	dc.b	'2022 JOTD',0
 _info
-    dc.b    "---",0
+    dc.b    "Music by no9",0
 	dc.b	0
 _kickname   dc.b    0
 ;--- version id
