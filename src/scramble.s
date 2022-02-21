@@ -84,6 +84,10 @@ Execbase  = 4
 
 ; ---------------debug/adjustable variables
 
+; check stuff
+
+;DEBUG_BUILD
+
 ; uncomment to mark scroll columns with letters	
 ;SCROLL_DEBUG
 
@@ -95,7 +99,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 5
+START_LEVEL = 6
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -112,12 +116,12 @@ DIRECT_GAME_START
 ; don't change the values below, change them above to test!!
 
 	IFD	HIGHSCORES_TEST
-EXTRA_LIFE_SCORE = 3000/10
-EXTRA_LIFE_PERIOD = 7000/10
+EXTRA_LIFE_SCORE = 1000/10
+;EXTRA_LIFE_PERIOD = 7000/10
 DEFAULT_HIGH_SCORE = 10000/10
 	ELSE
-EXTRA_LIFE_SCORE = 30000/10
-EXTRA_LIFE_PERIOD = 70000/10
+EXTRA_LIFE_SCORE = 10000/10
+;EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 	ENDC
 NB_HIGH_SCORES = 10
@@ -337,13 +341,18 @@ Start:
     move.l  #MODE_OLDFILE,d2
     jsr     _LVOOpen(a6)
     move.l  d0,d1
-    beq.b   .startup
+    beq.b   .no_floppy
     
     ; "floppy" file found
     jsr     _LVOClose(a6)
     ; wait 2 seconds for floppy drive to switch off
     move.l  #100,d1
     jsr     _LVODelay(a6)
+.no_floppy
+	; stop cdtv device if found, avoids that cd device
+	; sends spurious interrupts
+    move.l  #CMD_STOP,d0
+    bsr send_cdtv_command
 .startup
 
     lea  _custom,a5
@@ -502,8 +511,13 @@ intro:
     
     bsr init_new_play
 
+.new_mission  
+    lea objects_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette		
+	
+    clr.l   state_timer
 
-.new_level  
     bsr clear_screen
     bsr draw_score    
     bsr init_level
@@ -540,12 +554,14 @@ intro:
     
 	bsr	draw_ground	
     bsr draw_lives
+	bsr	clear_mission_flags
+	bsr	draw_mission_flags
     bsr draw_fuel_with_text
 	IFND	SCROLL_DEBUG
 	bsr	draw_level_map
 	bsr	draw_current_level
-
 	ENDC
+	
     move.w  #STATE_PLAYING,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
 .mainloop
@@ -563,9 +579,14 @@ intro:
 .game_over
     bra.b   .mainloop
 .next_level
-; not reached
-	
-    bra.b   .new_level
+	tst.b	do_restart_game_message
+	beq.b	.mainloop
+	clr.b	do_restart_game_message
+	; awatd extra life
+	addq.b	#1,nb_lives
+	; one more mission under the belt
+	addq.w	#1,nb_missions_completed
+    bra.b   .new_mission
 .life_lost
     IFD    RECORD_INPUT_TABLE_SIZE
     lea record_input_table,a0
@@ -658,6 +679,10 @@ intro:
     bsr     restore_interrupts
     bsr     wait_blit
     bsr     finalize_sound
+	; restart CDTV device
+    move.l  #CMD_START,d0
+    bsr send_cdtv_command
+
     bsr     save_highscores
 
     move.l  _gfxbase,a1
@@ -821,11 +846,6 @@ update_level_data
 	rts
     
 init_new_play:
-    lea objects_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette		
-	
-    clr.l   state_timer
 
 	clr.w	nb_missions_completed
 	
@@ -1041,6 +1061,7 @@ init_player:
 	move.w	#MAX_NB_BOMBS-1,d7
 	bsr	free_all_slots
 
+	move.w	#-1,mission_completed_countdown
     clr.w   death_frame_offset
 	clr.w	fireball_sound_timer
 	move.w	#1,low_fuel_sound_timer
@@ -1266,9 +1287,14 @@ draw_all
     rts
     
 .life_lost
+	rts
+	
 .next_level
-
-    ; don't do anything
+	; should be 0 but it's 1 for some reason
+	; it doesn't matter, just draw if <= 2 and that
+	; will work
+	cmp.l	#2,state_timer
+	bcs	draw_mission_completed
     rts
 PLAYER_ONE_X = 72
 PLAYER_ONE_Y = 102-14
@@ -1605,9 +1631,11 @@ add_to_score:
     cmp.l   previous_score(pc),d1
     bcs.b   .below
     
+	IFD		EXTRA_LIFE_PERIOD
     add.l   #EXTRA_LIFE_PERIOD,d1
     move.l  d1,score_to_track
-    
+    ENDC
+	
     move.w  #MSG_SHOW,extra_life_message
     addq.b   #1,nb_lives
 .below
@@ -1638,25 +1666,21 @@ draw_start_screen
     lea .psb_string(pc),a0
     move.w  #48,d0
     move.w  #96,d1
-    move.w  #$0F0,d2
+    move.w  #$0FF,d2
     bsr write_color_string
     
     lea .opo_string(pc),a0
     move.w  #48+16,d0
     move.w  #116,d1
-    move.w  #$0f00,d2
+    move.w  #$FFF,d2
 	
     bsr write_color_string
     lea .bp1_string(pc),a0
     move.w  #16,d0
     move.w  #148,d1
-    move.w  #$0FF,d2
+    move.w  #$0f40,d2
     bsr write_color_string
-    lea .bp2_string(pc),a0
-    move.w  #16,d0
-    move.w  #192-24,d1
-    move.w  #$FFF,d2
-    bsr write_color_string
+
     
     rts
     
@@ -1665,9 +1689,8 @@ draw_start_screen
 .opo_string:
     dc.b    "1 PLAYER ONLY",0
 .bp1_string
-    dc.b    "1ST BONUS AFTER 30000 PTS",0
-.bp2_string
-    dc.b    "AND BONUS EVERY 70000 PTS",0
+    dc.b    "BONUS JET  FOR 10000 PTS",0
+
     even
     
     
@@ -2300,6 +2323,7 @@ draw_fuel:
 fuel_text
 	dc.b	"FUEL",0
 	even
+	
 LIVES_OFFSET = 236*NB_BYTES_PER_LINE+2
 
 draw_last_life
@@ -2347,30 +2371,49 @@ draw_the_lives
     dbf d7,.lloop
 .out
     rts
+
+MF_OFFSET = LIVES_OFFSET+NB_BYTES_PER_PLAYFIELD_LINE-3
     
-draw_bonuses:
-    move.w #NB_BYTES_PER_PLAYFIELD_LINE*8,d0
-    move.w #248-32,d1
-    move.w  level_number(pc),d2
-    cmp.w   #6,d2
+draw_mission_flags:
+	lea	screen_data+MF_OFFSET,a1
+	lea	mission_flag,a0
+    move.w  nb_missions_completed(pc),d2
+    cmp.w   #8,d2
     bcs.b   .ok
-    move.w  #6,d2 
+    move.w  #8,d2
 .ok
-    move.w  #1,d4
-.dbloopy
-    move.w  #5,d3
-.dbloopx
-    ;;bsr draw_bonus
-    subq.w  #1,d2
-    bmi.b   .outb
-    add.w   #16,d0
-    dbf d3,.dbloopx
-    move.w #NB_BYTES_PER_PLAYFIELD_LINE*8,d0
-    add.w   #16,d1
-    dbf d4,.dbloopy
-.outb
+.mloop
+	move.l	a1,a3
+	move.l	a0,a2
+	move.w	#2,d3
+.ploop
+	REPT	8
+	move.b	(a2)+,(NB_BYTES_PER_LINE*REPTN,a3)
+	ENDR
+	add.w	#SCREEN_PLANE_SIZE,a3
+	dbf	d3,.ploop
+	; next flag
+	subq.w	#1,a1
+	dbf	d2,.mloop
     rts
-    
+   
+clear_mission_flags:
+	lea	screen_data+MF_OFFSET,a1
+    move.w  #8,d2
+
+.mloop
+	move.l	a1,a3
+	move.w	#2,d3
+.ploop
+	REPT	8
+	clr.b	(NB_BYTES_PER_LINE*REPTN,a3)
+	ENDR
+	add.w	#SCREEN_PLANE_SIZE,a3
+	dbf	d3,.ploop
+	; next flag
+	subq.w	#1,a1
+	dbf	d2,.mloop
+    rts   
 
     
 draw_ground:
@@ -2858,12 +2901,16 @@ update_all
 .life_lost
     rts
 
-.bonus_level_completed
-
-    bsr     stop_sounds
+	; from within interrupt, tick until timeout
+	; (end text could be read)
 .next_level
-     move.w  #STATE_NEXT_LEVEL,current_state
-     rts
+	; wait a while, then send signal to restart game
+	addq.l	#1,state_timer
+	cmp.l	#ORIGINAL_TICKS_PER_SEC*4,state_timer
+	bne.b	.no_change
+	st.b	do_restart_game_message
+.no_change
+    rts
      
 .game_over
     cmp.l   #GAME_OVER_TIMER,state_timer
@@ -2885,10 +2932,9 @@ update_all
 
     bsr stop_sounds
 
-	
     move.w  #STATE_NEXT_LEVEL,current_state
     clr.l   state_timer     ; without this, bonus level isn't drawn
-.completed_music_playing
+
     rts
 .no_completed
 
@@ -2918,7 +2964,7 @@ update_all
 	bsr	update_explosions
 	bsr	update_mystery_scores
 	
-	; enemy update according to level
+	; specific/enemy update according to level
 	lea		update_table(pc),a0
 	move.w	level_number(pc),d0
 	add.w	d0,d0
@@ -2979,11 +3025,66 @@ update_table
 	dc.l	update_fireballs
 	dc.l	update_rockets
 	dc.l	nothing
-	dc.l	nothing
+	dc.l	update_base
 	
 start_music_countdown
     dc.w    0
 
+draw_mission_completed
+    bsr clear_screen
+    bsr	clear_playfield_planes
+	; set menu palette so the text has the proper colors
+    lea menu_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette	
+
+	; colors are wrong but it doesn"t matter much
+	; for it to be correct we'd have to change it dynamically
+	; but that ain't worth it
+	bsr	draw_fuel_with_text
+	bsr	draw_lives
+	bsr	draw_mission_flags
+	;;bsr	draw_score
+ 
+	; the palette of the text is correct (menu palette)
+	move.w	#56,d0
+	move.w	#96-24,d1
+	lea	.congrats_text(pc),a0
+    move.w  #$0f40,d2
+    bsr write_color_string 
+	move.w	#16,d0
+	add.w	#16,d1
+	lea	.you_completed_text(pc),a0
+    move.w  #$0ff0,d2
+    bsr write_color_string 
+	move.w	#16,d0
+	add.w	#16,d1
+	lea	.good_luck_text(pc),a0
+    move.w  #$0dd,d2
+    bsr write_color_string 
+	rts
+	
+.congrats_text:
+	dc.b	"CONGRATULATIONS",0
+	
+.you_completed_text:
+	dc.b	"YOU COMPLETED YOUR DUTIES",0
+	
+.good_luck_text:
+	dc.b	"GOOD LUCK NEXT TIME AGAIN",0
+	
+	even
+	
+update_base:
+	tst.w	mission_completed_countdown
+	bmi.b	.out
+	subq.w	#1,mission_completed_countdown
+	bne.b	.out
+	; mission is complete
+	st.b	game_completed_flag
+.out
+	rts
+	
 update_fuel_alarm
 	cmp.w	#80,fuel
 	bcc.b	.still_enough_fuel
@@ -4216,7 +4317,11 @@ something_was_hit
 	beq.b	.fuel_shot
 	cmp.b	#MYSTERY_TILE,d2
 	beq.b	.mystery_shot
-	blitz	; todo base
+	cmp.b	#BASE_TILE,d2
+	beq.b	.base_shot
+	; in some rare cases we land here
+	; scenery hit below the surface or stuff...
+	; not a big deal. Just ignore
 	bra.b	.object_shot
 .mystery_shot
 	; random scoring, original games awards:
@@ -4239,6 +4344,12 @@ something_was_hit
 	bsr		blit_16x16_scroll_object
 	lea		bomb_hits_ground_sound,a0
 	bsr		play_fx	
+	bra.b	.object_shot
+.base_shot
+	move.l	#80,d0		; 800 points
+	bsr		add_to_score
+	; mission is now completed
+	move.w	#ORIGINAL_TICKS_PER_SEC*2,mission_completed_countdown
 	bra.b	.object_shot
 .fuel_shot
 	; create an explosion for the object
@@ -4742,7 +4853,7 @@ draw_flying_rockets:
 	; last draw of that object
 	; erase_flying_rockets did the job, just ack the flag
 	clr.b	active(a4)
-	bra.b	.draw
+	bra.b	.no_draw	
 	
 erase_explosions:
 	move.w	#MAX_NB_EXPLOSIONS-1,d7
@@ -5483,6 +5594,13 @@ blit_16x16_scroll_object_no_cookie_cut
 
 blit_16x16_scroll_object
     movem.l d2-d7/a0-a5,-(a7)
+	IFD	DEBUG_BUILD
+	cmp.l	#$80000,a0
+	bcs.b	.ok
+	blitz
+	nop
+.ok
+	ENDC
     lea $DFF000,A5
 	move.l	a1,d1
 	moveq.l #-1,d3	;masking of first/last word : no mask   
@@ -6022,7 +6140,85 @@ load_highscores
 	move.l	hiscore_table(pc),high_score
 .no_file
     rts
+
+
+; < D0: command to send to cdtv 
+send_cdtv_command:
+	tst.l	_resload
+	beq.b	.go
+	rts		; not needed within whdload (and will fail)
+.go
+	movem.l	d0-a6,-(a7)
+    move.l  d0,d5
     
+	; alloc some mem for IORequest
+
+	MOVEQ	#40,D0			
+	MOVE.L	#MEMF_CLEAR|MEMF_PUBLIC,D1
+	move.l	$4.W,A6
+	jsr	_LVOAllocMem(a6)
+	move.l	D0,io_request
+	beq	.Quit
+
+	; open cdtv.device
+
+	MOVEA.L	D0,A1
+	LEA	cdtvname(PC),A0	; name
+	MOVEQ	#0,D0			; unit 0
+	MOVE.L	D0,D1			; flags
+	jsr	_LVOOpenDevice(a6)
+	move.l	D0,D6
+	ext	D6
+	ext.l	D6
+	bne	.Quit		; unable to open
+
+    ; wait a while if CMD_STOP
+    cmp.l   #CMD_STOP,d5
+    bne.b   .nowait
+	move.l	_dosbase(pc),A6
+	move.l	#20,D1
+	JSR	_LVODelay(a6)		; wait 2/5 second before launching
+.nowait
+	; prepare the IORequest structure
+
+	MOVEQ	#0,D0
+	MOVEA.L	io_request(pc),A0
+	MOVE.B	D0,8(A0)
+	MOVE.B	D0,9(A0)
+	SUBA.L	A1,A1
+	MOVE.L	A1,10(A0)
+	MOVE.L	A1,14(A0)
+	CLR.L	36(A0)
+
+	move.l	io_request(pc),A0
+
+	move.l	A0,A1
+	move.w	d5,(IO_COMMAND,a1)
+	move.l	$4.W,A6
+	JSR		_LVODoIO(a6)
+
+.Quit:
+	; close cdtv.device if open
+
+	tst.l	D6
+	bne	.Free
+	MOVE.L	io_request(pc),D1
+	beq	.End
+	move.l	D1,A1
+	move.l	$4.W,A6
+	jsr	_LVOCloseDevice(a6)
+
+.Free:		
+	; free the memory
+
+	MOVEQ	#40,D0
+	move.l	io_request(pc),A1
+	move.l	$4.W,A6
+	JSR		_LVOFreeMem(a6)
+.End:
+	movem.l	(a7)+,d0-a6
+	rts
+	
 save_highscores
     tst.w   cheat_keys
     bne.b   .out
@@ -6059,10 +6255,14 @@ _gfxbase
     dc.l    0
 _resload
     dc.l    0
+io_request:
+	dc.l	0
 _keyexit
     dc.b    $59
 scores_name
     dc.b    "scramble.high",0
+cdtvname:
+	dc.b	"cdtv.device",0
 highscore_needs_saving
     dc.b    0
 graphicsname:   dc.b "graphics.library",0
@@ -6166,12 +6366,16 @@ fireball_sound_timer
 	dc.w	0
 nb_missions_completed
 	dc.w	0
-	
+mission_completed_countdown
+	dc.w	0
+		
 play_start_music_message:
 	dc.b	0
 display_player_one_message
 	dc.b	0
 draw_tile_column_message
+	dc.b	0
+do_restart_game_message:
 	dc.b	0
 nb_lives:
     dc.b    0
@@ -6639,6 +6843,9 @@ full_mask
 lives:
     incbin  "life.bin"
 
+mission_flag
+	incbin	"mission_flag.bin"
+	
 enemies_1
 	incbin	"enemies_1.bin"
 enemies_2

@@ -61,6 +61,8 @@ ISSUES:
 - shooting base of fuel tanks doesn't destroy them (level 5)
 - check initial y positions / landscape (level 1, and others)
 - apply +20% speed on all objects (ufos, rockets, bombs)
+- "blitz" triggered on unknown object (very rare)
+- sometimes cannot bomb objects (objects not destroyed)
 
 TODO
 

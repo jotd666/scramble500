@@ -74,6 +74,14 @@
  "width":16,
  "height":8
  },
+{"name":"mission_flag",
+"generate_mask":false,
+"blit_pad":false,
+ "start_x":19,
+ "start_y":78,
+ "width":8,
+ "height":8
+ },
 {"name":"explosion_1",
      "generate_mask":true,
  "start_x":121,
