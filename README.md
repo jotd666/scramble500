@@ -26,6 +26,11 @@ CONTROLS:
 - space/fire button: start game
 - P/second button: pause
 - F10 (or quitkey): quit (and save scores)
+- two button joystick/joypad: fire to shoot, second button to bomb
+- one button joystick: fire to shoot and bomb
+- when game is about to start (intro music playing), press any
+  direction to change controls. If a cd32 joypad is connected, two button
+  mode is selected by default.
 
 HOW TO PLAY:
 
@@ -50,6 +55,9 @@ CREDITS:
 
 ISSUES:
 
+- rockets that are very low in landscape disappear too soon / kill ship
+  and trash memory: lock scroll to test!!!!!!
+  
 - level 5 bottom part was too low
   fixing this changes other parts so maybe there's a disrepancy 
   (also because ground level varies between levels)
@@ -60,14 +68,13 @@ ISSUES:
 - collisions with ceiling not right, make it nicer
 - shooting base of fuel tanks doesn't destroy them (level 5)
 - check initial y positions / landscape (level 1, and others)
-- apply +20% speed on all objects (ufos, rockets, bombs)
-- "blitz" triggered on unknown object (very rare)
+- apply +20% speed on all objects (ufos, rockets, bombs) see if needed
+ (seems that bomb doesn't need it WTF)
 - sometimes cannot bomb objects (objects not destroyed)
 
 TODO
 
-- specific sound loops per levels
-- animated base
+- animated base / explosion when desroying it
 - hide stars in levels with ceiling (2,5)
 - option to fire and bomb with 1 button (selection on "player one" get ready screen)
 - bombing anything: bomb explodes briefly and sound is covered by object explosion

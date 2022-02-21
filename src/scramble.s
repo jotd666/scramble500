@@ -86,20 +86,20 @@ Execbase  = 4
 
 ; check stuff
 
-;DEBUG_BUILD
+DEBUG_BUILD
 
 ; uncomment to mark scroll columns with letters	
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 
 ;HIGHSCORES_TEST
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 6
+;START_LEVEL = 6
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -356,6 +356,12 @@ Start:
 .startup
 
     lea  _custom,a5
+	bsr	_detect_controller_types
+	tst.b	controller_joypad_1
+	; if zero, no joypad detected => one button control
+	; by default
+	seq	one_button_control_option
+	; no extra joypad buttons
     move.b  #0,controller_joypad_1
     
 
@@ -473,6 +479,7 @@ intro:
 
     clr.l   state_timer
     move.w  #STATE_GAME_START_SCREEN,current_state
+	clr.b	game_started_flag
     
 .release
     move.l  joystick_state(pc),d0
@@ -1269,6 +1276,8 @@ draw_all
     tst.l   state_timer
     beq.b   draw_start_screen
 	
+	tst.b	game_started_flag
+	beq.b	.wait_for_start
 	tst.b	display_player_one_message
 	beq.b	.no_play
 	clr.b	display_player_one_message
@@ -1279,11 +1288,23 @@ draw_all
 	move.w	#160-24,d1
     move.w  #$FFF,d2
     bsr write_color_string
+	
 	; artifically display all 3 lives at start
 	bsr	draw_lives
 	; real number of remaining lives (plus the one in play)
 .no_play
+	; controller option (amiga specific)
+	lea	one_button_control_text(pc),a0
+	tst.b	one_button_control_option
+	bne.b	.select
+	lea	two_button_control_text(pc),a0	
+.select
+	move.w	#32,d0
+	move.w	#160,d1
+    move.w  #$FFF,d2
+    bsr write_blanked_color_string
 
+.wait_for_start
     rts
     
 .life_lost
@@ -2884,6 +2905,7 @@ update_all
 	addq.l	#1,state_timer
 	tst.b	play_start_music_message
 	beq.b	.no_play
+	st.b	game_started_flag
 	moveq	#0,d0
     bsr.b	play_music
 	clr.b	play_start_music_message
@@ -2896,6 +2918,20 @@ update_all
 .out
 	move.w	d0,start_music_countdown
 .continue
+	tst.b	game_started_flag
+	beq.b	.not_started
+	move.l	joystick_state(pc),d0
+	move.l	previous_joy_input(pc),d1
+	move.l	d0,previous_joy_input
+	move.l	#JPF_BTN_LEFT|JPF_BTN_RIGHT|JPF_BTN_UP|JPF_BTN_DOWN,d2
+	and.l	d2,d0
+	beq.b	.no_dir_change
+	and.l	d2,d1
+	cmp.l	d1,d0
+	beq.b	.no_dir_change
+	eor.b	#$FF,one_button_control_option
+.no_dir_change
+.not_started
     rts
     
 .life_lost
@@ -3838,6 +3874,9 @@ update_player
 	btst	#JPB_BTN_RED,d1
 	bne.b	.no_fire
 	bsr.b	create_shot
+	tst.b	one_button_control_option
+	beq.b	.no_fire
+	bset	#JPB_BTN_BLU,d0
 .no_fire
     btst    #JPB_BTN_BLU,d0
     beq.b   .no_bomb
@@ -5594,15 +5633,20 @@ blit_16x16_scroll_object_no_cookie_cut
 
 blit_16x16_scroll_object
     movem.l d2-d7/a0-a5,-(a7)
+    lea $DFF000,A5
+	move.l	a1,d1
 	IFD	DEBUG_BUILD
 	cmp.l	#$80000,a0
 	bcs.b	.ok
-	blitz
-	nop
+	trap	#0
 .ok
+	tst	d1
+	bmi.b	.pb
+	bne.b	.ok2
+.pb
+	trap	#1
+.ok2
 	ENDC
-    lea $DFF000,A5
-	move.l	a1,d1
 	moveq.l #-1,d3	;masking of first/last word : no mask   
     moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
     move.w  #16,d4      ; 16 pixels height   
@@ -6379,6 +6423,8 @@ do_restart_game_message:
 	dc.b	0
 nb_lives:
     dc.b    0
+one_button_control_option
+	dc.b	0
 fuel_depletion_timer
 	dc.b	0
 fuel_depetion_current_timer:
@@ -6388,6 +6434,8 @@ update_fuel_message:
 alive_timer
 	dc.b	0
 rockets_fly_flag:
+	dc.b	0
+game_started_flag:
 	dc.b	0
 enemy_launch_cyclic_counter
 	dc.b	0
@@ -6555,6 +6603,11 @@ game_over_string
     dc.b    "GAME##OVER",0
 player_one_string
     dc.b    "PLAYER ONE",0
+one_button_control_text
+	dc.b	"ONE BUTTON JOYSTICK",0
+two_button_control_text
+	dc.b	"TWO BUTTON JOYSTICK",0
+	
 player_one_string_clear
     dc.b    "          ",0
 
