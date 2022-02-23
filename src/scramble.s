@@ -88,14 +88,14 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 
 ;HIGHSCORES_TEST
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 2
+;START_LEVEL = 3
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -158,9 +158,9 @@ SCREEN_PLANE_SIZE = NB_BYTES_PER_LINE*NB_LINES
 SCROLL_PLANE_SIZE = NB_BYTES_PER_SCROLL_SCREEN_LINE*NB_LINES
 NB_PLANES   = 3
 
-
+Y_SHIP_START = 57
 X_MAX=240
-Y_MAX=228
+Y_MAX=224
 X_SHIP_MIN=16	; min so we can see it fully
 X_MIN=X_SHIP_MIN
 X_SHIP_MAX=84
@@ -1183,7 +1183,7 @@ init_player:
 	
 
     move.w  #8+X_SHIP_MIN,xpos(a0)
-	move.w	#60,ypos(a0)
+	move.w	#Y_SHIP_START,ypos(a0)
     
 	
     clr.b	alive_timer
@@ -1824,7 +1824,10 @@ random:
     mulu #$a57b,d0
     addi.l #$bb40e62d,d0
     rol.l #6,d0
+	tst.b	random_stop_flag
+	bne.b	.same
     move.l  d0,previous_random
+.same
     rts
 
     
@@ -2774,8 +2777,9 @@ saved_intena
 ; F4: show debug info
 ; F5: toggle infinite fuel
 ; F6: stop scrolling (and no fuel depletion)
-; F8: 
-; F9: 
+; F7: add 5000 to score
+; F8: toggle randomness
+; F9: stop flying enemy movement
 ; TAB: fast-forward (no player controls during that)
 
 level2_interrupt:
@@ -2882,17 +2886,17 @@ level2_interrupt:
 .no_scroll_stop_toggle
     cmp.b   #$56,d0     ; F7
     bne.b   .no_add_to_score
-	move.w	#500,d0
+	move.w	#500,d0		; add 5000
 	bsr		add_to_score
 .no_add_to_score
     cmp.b   #$57,d0     ; F8
-    bne.b   .no_maze_dump
-	nop
-.no_maze_dump
+    bne.b   .no_random_toggle
+	eor.b	#1,random_stop_flag
+.no_random_toggle
     cmp.b   #$58,d0     ; F9
-    bne.b   .no_attack
-    nop
-.no_attack
+    bne.b   .no_enemy_movement
+    eor.b	#1,enemy_movement_stop_flag
+.no_enemy_movement
 
 .no_playing
 
@@ -3180,8 +3184,10 @@ update_all
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
 	move.w	#24,d2
-	move.w	#10,d3
+	move.w	#8,d3
 	addq.w	#8,d0
+	addq.w	#4,d1
+	clr		d4
 	bsr		object_to_enemy_collision
 	tst.b	d0
 	beq.b	.no_airborne_enemies
@@ -3475,6 +3481,7 @@ update_rockets
 	move.b	d0,enemy_launch_cyclic_counter
 	and.b	#$3F,d0
 	bne.b	.no_launch
+
 	; check if a rocket is ready to launch
 	;;airborne_enemies
 	; see if there are rockets that we could launch that
@@ -3540,6 +3547,9 @@ update_rockets
 .no_rocket
 	dbf	d2,.check
 .no_launch
+	tst.b	enemy_movement_stop_flag
+	bne.b	nothing
+
 	; update existing rockets
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea	airborne_enemies(pc),a4
@@ -4251,7 +4261,7 @@ create_fireball:
 	and.w	#$7F,d0
 	; not too low, else the fireballs will cross the highest
 	; mountain edges and game becomes unfair!
-	add.w	#Y_SHIP_MIN-8,d0
+	add.w	#Y_SHIP_MIN-12,d0
 	move.w	d0,d1
 	move.w	#X_MAX,d0
 	bsr.b	create_enemy
@@ -4453,6 +4463,7 @@ update_shots:
 	move.w	d4,d1
 	moveq.w	#2,d2	; small dimension
 	moveq.w	#2,d3	; small dimension
+	st.b	d4
 	bsr		object_to_enemy_collision
 	tst		d0
 	bne.b	.stop
@@ -4720,6 +4731,7 @@ update_bombs:
 	addq.w	#5,d1
 	moveq.w	#6,d2	; big dimension
 	moveq.w	#6,d3	; big dimension
+	st.b	d4
 	bsr		object_to_enemy_collision
 	tst		d0
 	bne.b	.stop
@@ -4742,12 +4754,15 @@ update_ufos:
 	bsr		create_ufo
 .no_launch
 	; move existing enemies
+	tst.b	enemy_movement_stop_flag
+	bne.b	nothing
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea		airborne_enemies(pc),a4
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_update
 	bmi.b	.no_update
+
 	move.w	move_index(a4),d2	; move index
 	move.w	d2,d0
 	addq.w	#2,d0		; next pos
@@ -4824,6 +4839,9 @@ update_fireballs:
 	; insert an ufo in playfield
 	bsr		create_fireball
 .no_launch
+	tst.b	enemy_movement_stop_flag
+	bne.b	nothing
+
 	; move existing enemies
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea		airborne_enemies(pc),a4
@@ -4867,6 +4885,7 @@ update_fireballs:
 ; < D0,D1: x,y of bomb/shot/ship
 ; < D2: width of colliding object of bomb/shot (4 for bomb, 2 for shot)
 ; < D3: height of colliding object
+; < D4: should we score if collided
 ; trashes: nothing
 ; returns: D0.b	!= 0 if something was hit
 
@@ -4926,6 +4945,8 @@ object_to_enemy_collision
 	moveq	#1,d2
 	bsr		create_explosion
 	
+	tst	d4
+	beq.b	.no_scoring
 	moveq.l	#8,D0	; 80 points
 	cmp.w	#1,level_number
 	bne.b	.no_ufos
@@ -4935,6 +4956,7 @@ object_to_enemy_collision
 	; enemy hit explosion + score
 	lea	rocket_explodes_sound,a0	; TODO not the right sound
 	bsr	play_fx
+.no_scoring
 	st.b	active(a4)	; last clear, no draw
 	st.b	d0
 	bra.b	.out
@@ -6644,6 +6666,10 @@ infinite_lives_cheat_flag
 debug_flag
     dc.b    0
 scroll_stop_flag
+	dc.b	0
+random_stop_flag
+	dc.b	0
+enemy_movement_stop_flag
 	dc.b	0
 demo_mode
     dc.b    0

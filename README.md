@@ -59,18 +59,19 @@ CREDITS:
 
 ISSUES:
 
+- ufo/ship collisions not working  proper: ship nose ok ship middle misses collision
+- rocket shoot fails on top half of rocket
+- ufo shoot fails on top half of ufo
+- ufo shoot works too well on bottom half of ufo
 - level 5 bottom part was too low
   fixing this changes other parts so maybe there's a disrepancy 
   (also because ground level varies between levels)
-  fireballs are also too low, adjust the rest first
 - level 4/5 filler is reverted (brick then square) in the bottom section
   or is it the odd/even tile pattern?
-- ufo/ship collisions not working: ship nose ok ship middle misses collision
 - collisions with ceiling not right, make it more laxist: test level 5
 - shooting base of fuel tanks doesn't destroy them (level 5)
 - check initial y positions / landscape (level 1, and others)
-- sometimes cannot bomb objects (objects not destroyed): problem with
-  shifting + playfield vs objects planes coords
+- sometimes cannot bomb objects (objects not destroyed)
 
 TODO
 
