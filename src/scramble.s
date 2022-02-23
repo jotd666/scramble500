@@ -95,7 +95,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 5
+;START_LEVEL = 2
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -165,7 +165,7 @@ X_SHIP_MIN=16	; min so we can see it fully
 X_MIN=X_SHIP_MIN
 X_SHIP_MAX=84
 Y_SHIP_MIN=28
-Y_SHIP_MAX=Y_MAX-16
+Y_SHIP_MAX=Y_MAX-24
 Y_START_UFO = 108
 X_EXHAUST_WIDTH = 10	; 10 first pixels of ship don't trigger collision
 
@@ -257,6 +257,33 @@ DYN_COLOR = 4
 KILL_FIRST_FRAME = 8
 SCORE_FIRST_FRAME = 8
 
+; macro to add/sub 1 every 4 moves
+; let's hope that the optimizer changes add.w #-1 to subq #1
+;
+; < 1 or -1 to add
+; < object structure index address register
+; < index of target data register
+; < index of work data register
+EXTRA_ADD_TO_DX:MACRO
+	IFLT	\1
+    subq.w 	#-(\1),d\3
+	ELSE
+    addq.w 	#\1,d\3
+	ENDC
+	move.w	extra_y_counter(a\2),d\4
+	addq.w	#1,d\4
+	cmp.w	#4,d\4
+	bne.b	.no_extra_y\@
+	clr.w	d\4
+	IFLT	\1
+    subq.w 	#-(\1),d\3
+	ELSE
+    addq.w 	#\1,d\3
+	ENDC
+.no_extra_y\@
+	move.w	d\4,extra_y_counter(a\2)
+	ENDM
+	
 ; jump table macro, used in draw and update
 DEF_STATE_CASE_TABLE:MACRO
     move.w  current_state(pc),d0
@@ -440,7 +467,6 @@ intro:
     bsr clear_screen
     
 	;bsr	init_scroll_mask_sprite
-	
 	bsr	init_stars
 	
     bsr draw_score
@@ -466,7 +492,12 @@ intro:
     bne.b   .out
     move.l  joystick_state(pc),d0
     btst    #JPB_BTN_RED,d0
+    bne.b   .exit_intro
+    btst    #JPB_BTN_BLU,d0
     beq.b   .intro_loop
+	; started with blue or second button joy: 2 button control
+	clr.b	one_button_control_option
+.exit_intro
     clr.b   demo_mode
 .out_intro    
 
@@ -479,6 +510,8 @@ intro:
     move.l  joystick_state(pc),d0
     btst    #JPB_BTN_RED,d0
     bne.b   .release
+    btst    #JPB_BTN_BLU,d0
+    bne.b   .release
 
     tst.b   demo_mode
     bne.b   .no_credit
@@ -490,15 +523,18 @@ intro:
     tst.b   quit_flag
     bne.b   .out
     btst    #JPB_BTN_RED,d0
+    bne.b   .wait_fire_release
+    btst    #JPB_BTN_BLU,d0
     beq.b   .game_start_loop
-
-.no_credit
+	clr.b	one_button_control_option
 
 .wait_fire_release
     move.l  joystick_state(pc),d0
     btst    #JPB_BTN_RED,d0
     bne.b   .wait_fire_release
-
+    btst    #JPB_BTN_BLU,d0
+    bne.b   .wait_fire_release
+.no_credit
 	st.b	play_start_music_message
 	clr.b	display_player_one_message
 	move.w	#4*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,start_music_countdown
@@ -589,7 +625,7 @@ intro:
 	addq.w	#1,nb_missions_completed
 	; restart at level 1
 	clr.w	level_number
-	bsr	update_level_data
+	bsr	update_level_set_data
     bra.b   .new_mission
 .life_lost
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -829,7 +865,7 @@ clear_scroll_plane
     movem.l (a7)+,d0/a1
     rts
 
-update_level_data
+update_level_set_data
 	move.w	#10,d1
 	move.w	nb_missions_completed(pc),d0
 	beq.b	.store
@@ -839,15 +875,34 @@ update_level_data
 	subq.w	#2,d1
 .store
 	move.b	d1,fuel_depletion_timer
-	
-	tst.w	level_number
+	; continue for level itself (first level)
+update_level_data:
+	move.w	level_number(pc),d0
 	beq.b	.rockets_fly
-	cmp.w	#3,level_number
+	cmp.w	#3,d0
 .rockets_fly
 	seq		rockets_fly_flag
-
+	
+	; stars show/hide
+	lea	.stars_change_table(pc),a0
+	tst.b	(a0,d0.w)
+	beq.b	.no_change
+	; change when ceiling tile reaches the first position
+	; or .. whatever value looks good...
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE*4,stars_state_change_timer
+.no_change
 	rts
-    
+	
+	; 0: no toggle
+	; 1: toggle
+.stars_change_table:
+	dc.b	0
+	dc.b	1	; level 2 - caverns
+	dc.b	1	; level 3
+	dc.b	0	; level 4
+	dc.b	1	; level 5 - tunnels
+	dc.b	1	; level 6
+	
 init_new_play:
 
 	clr.w	nb_missions_completed
@@ -864,7 +919,7 @@ init_new_play:
     move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
  
-	bsr		update_level_data
+	bsr		update_level_set_data
 	
     ; global init at game start
 	
@@ -970,7 +1025,21 @@ stars_palette_size = (end_stars_palette-stars_palette)
 NB_STAR_LINES = 53
 star_copperlist_size = (end_stars_sprites_copperlist-stars_sprites_copperlist)/NB_STAR_LINES
 
-init_stars
+; remove stars (levels 2 and 5, where there's a ceiling)
+no_stars
+	lea	stars_sprites_copperlist,a1
+	move.w	#NB_STAR_LINES-1,d7
+.loop
+	; D0 is the sprite pos/control word
+	clr.w	18-8(a1)		; change offset if struct changes
+	clr.w	22-8(a1)		; change offset if struct changes
+
+	add.w	#star_copperlist_size,a1
+	dbf		d7,.loop
+	rts
+
+	
+show_stars
 	lea	stars_sprites_copperlist,a1
 	lea	stars_palette(pc),a2
 	
@@ -1010,13 +1079,32 @@ init_stars
 	clr.l	d0
 	bra.b	.write_pos
 	
-
+init_stars
+	move.w	#-1,stars_state_change_timer
+	st.b	stars_on
+	bra.b	show_stars
+	
 update_stars
+	tst.w	stars_state_change_timer
+	bmi.b	.update
+	bne.b	.decrease
+	clr.w	stars_timer
+	eor.b	#$FF,stars_on
+.decrease
+	subq.w	#1,stars_state_change_timer
+.update
 	move.w	stars_timer(pc),d0
 	addq.w	#1,d0
 	cmp.w	#ORIGINAL_TICKS_PER_SEC,d0
 	bne.b	.nowrap
-	bsr		init_stars
+	
+	tst.b	stars_on
+	bne.b	.show
+	bsr.b	no_stars
+	clr.w	d0
+	bra.b	.nowrap
+.show
+	bsr		show_stars
 	clr.w	d0
 .nowrap
 	move.w	d0,stars_timer
@@ -1191,7 +1279,6 @@ draw_debug
     move.w  #3,d3
     bsr write_decimal_number
     move.l  d4,d0
-    ENDC
 
 	lea	bombs,a2
     lea .bx(pc),a0
@@ -1215,6 +1302,7 @@ draw_debug
     move.w  #3,d3
     bsr write_decimal_number
     move.l  d4,d0
+    
     ;;
 	; count airborne slots
 	lea	airborne_enemies,a4
@@ -1238,6 +1326,63 @@ draw_debug
     bsr write_decimal_number	
     ;;
     ;;
+	ENDC
+    lea .sshift(pc),a0
+    add.w  #8,d1
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    move.w  #3,d3
+	move.w	scroll_shift(pc),d2
+    bsr write_decimal_number	
+
+	; show airborne enemies info
+	lea	airborne_enemies,a4
+	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
+	clr.l	d2
+.loop
+	tst.b	active(a4)
+	bne.b	.out
+	
+	add.w	#GfxObject_SIZEOF,a4
+	dbf		d7,.loop
+	; erase data
+    lea .ex(pc),a0
+	move.w	xpos(a4),d2
+    add.w  #8,d1
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    lea	.na(pc),a0
+    bsr write_string	
+    lea .ey(pc),a0
+	move.w	ypos(a4),d2
+    add.w  #8,d1
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    lea	.na(pc),a0
+    bsr write_string	
+	
+	bra.b	.no_nmes
+.out
+    lea .ex(pc),a0
+	move.w	xpos(a4),d2
+    add.w  #8,d1
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    move.w  #3,d3
+    bsr write_decimal_number	
+    lea .ey(pc),a0
+	move.w	ypos(a4),d2
+    add.w  #8,d1
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    move.w  #3,d3
+    bsr write_decimal_number	
+.no_nmes
 
 
     rts
@@ -1255,8 +1400,14 @@ draw_debug
         dc.b    "BX ",0
 .by
         dc.b    "BY ",0
-
-
+.ex
+        dc.b    "EX ",0
+.ey
+        dc.b    "EY ",0
+.na
+		dc.b	"N/A",0
+.sshift
+		dc.b	"SSHIFT",0
         even
 
      
@@ -1271,6 +1422,8 @@ draw_all
 .game_start_screen
     tst.l   state_timer
     beq.b   draw_start_screen
+	tst.b	demo_mode
+	bne.b	.wait_for_start
 	
 	tst.b	game_started_flag
 	beq.b	.wait_for_start
@@ -1321,6 +1474,8 @@ PLAYER_ONE_Y = 102-14
     cmp.l   #GAME_OVER_TIMER,state_timer
     bne.b   .draw_complete
     bsr clear_playfield_planes
+	; re-set stars if was off
+	bsr		init_stars
 
     move.w  #72,d0
     move.w  #136,d1
@@ -1686,7 +1841,7 @@ draw_start_screen
     lea .psb_string(pc),a0
     move.w  #48,d0
     move.w  #96,d1
-    move.w  #$0FF,d2
+    move.w  #$0dd,d2
     bsr write_color_string
     
     lea .opo_string(pc),a0
@@ -2715,6 +2870,8 @@ level2_interrupt:
 .no_debug
     cmp.b   #$54,d0     ; F5
     bne.b   .no_fuel
+    move.w  #$0F0,_custom+color
+
 	eor.b	#1,no_fuel_depletion_flag
 .no_fuel
     cmp.b   #$55,d0     ; F6
@@ -2849,6 +3006,8 @@ level3_interrupt:
 .no_fire 
     tst.b   ($64,a0)    ; l-alt key
     beq.b   .no_fire2
+	; using bomb on keyboard sets 2-button control
+	clr.b	one_button_control_option
     bset    #JPB_BTN_BLU,d0
 .no_fire2
     tst.b   ($4C,a0)    ; up key
@@ -2902,6 +3061,8 @@ update_all
     
 .game_start_screen
 	addq.l	#1,state_timer
+	tst.b	demo_mode
+	bne.b	.play
 	tst.b	play_start_music_message
 	beq.b	.no_play
 	st.b	game_started_flag
@@ -2909,10 +3070,11 @@ update_all
     bsr.b	play_music
 	clr.b	play_start_music_message
 	st.b	display_player_one_message
-.no_play	
+.no_play
 	move.w	start_music_countdown(pc),d0
 	subq.w	#1,d0
 	bne.b	.out
+.play
 	move.w	#STATE_PLAYING,current_state
 .out
 	move.w	d0,start_music_countdown
@@ -3200,6 +3362,7 @@ draw_scrolling_tiles
 .level_completed
 	addq.w	#1,level_number
 	st.b	next_level_flag
+	bsr		update_level_data
 	moveq.w	#1,d0
 	cmp.w	#1,level_number
 	bne.b	.no_special_sound_loop
@@ -3330,13 +3493,22 @@ update_rockets
 	; now we have to check if that rocket wasn't destroyed
 	sub.l	a1,d0	; convert to tile offset to make X
 	add.w	d0,d0
-	add.w	d0,d0	; times 4 to get proper X value
-	addq.w	#8,d0	; correction
+	add.w	d0,d0	; times 4 to get proper X value (but not scroll-shifted)
 	move.w	d0,d3
+	add.w	#8,d3	; empiric make-up offset
+	add.w	scroll_shift(pc),d0		; cancel scroll shift bias
 	move.w	d1,d4	; save for later
 	bsr		get_tile_type
+	tst.b	(a0)	; rocket has been shot or launched
+	beq.b	.no_rocket
 	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)	
-	bne.b	.no_rocket	; rocket has been shot or launched
+	beq.b	.rocket
+	move.w	#$F,$DFF180
+	;cmp.b	#ROCKET_TOP_LEFT_TILEID,(-1,a0)	
+	;bne.b	.no_rocket	; should not happen
+	;subq.w	#8,d3	; correction
+	;subq.w	#1,a0
+.rocket
 	; there's a rocket to be launched
 	; remove y from list
 	clr.w	(-2,a2)
@@ -3344,6 +3516,7 @@ update_rockets
 	subq.w	#8,d3
 	move.w	d3,d0
 	move.w	d4,d1
+	add.w	#8,d1	; Y is shifted
 	; create flying rocket
 	bsr.b	create_enemy
 	tst.w	d7
@@ -3375,19 +3548,30 @@ update_rockets
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
 	subq.w	#1,d1	; up
-	subq.w	#1,d0	; left
-	cmp.w	#Y_SHIP_MIN-8,d1
+	cmp.w	#8,d1
 	bcs.b	.stop_rocket
 	tst.b	scroll_stop_flag
 	bne.b	.no_scroll
+	subq.w	#1,d0	; left
 	cmp.w	#X_MIN,d0
 	bcs.b	.stop_rocket
+	move.w	d0,xpos(a4)		; if no scroll (cheat), don't move x-wise
 .no_scroll
-	move.w	d0,xpos(a4)
 	move.w	d1,ypos(a4)
 	move.l	plane_address(a4),d0
 	; change plane address too (draw doesn't use coords in scroll planes)
 	sub.l   #NB_BYTES_PER_SCROLL_SCREEN_LINE,d0
+	move.w	extra_y_counter(a4),d1
+	addq.w	#1,d1
+	cmp.w	#4,d1
+	bne.b	.no_extra_y
+	; once out of 4 times, move up, part of the y speed
+	; kludge started with player ship y move
+	clr.w	d1
+	sub.l   #NB_BYTES_PER_SCROLL_SCREEN_LINE,d0
+	subq.w	#1,ypos(a4)
+.no_extra_y
+	move.w	d1,extra_y_counter(a4)
 	move.l	d0,plane_address(a4)
 .no_update
 	add.w	#GfxObject_SIZEOF,a4
@@ -3411,11 +3595,11 @@ check_collisions
     move.w  xpos(a3),d2
 	add.w	#X_EXHAUST_WIDTH,d2	; skip exhaust
     move.w  ypos(a3),d3
-	cmp.w	#$F0,d3		; just in case cheat on and no more fuel
-	bcc.b	player_killed
+	cmp.w	#Y_SHIP_MAX+8,d3		; just in case cheat on and no more fuel
+	bcc.b	player_really_killed
 	
 	move.w	d2,d0
-	add.w	#16,d0	; front
+	add.w	#16,d0	; top-front
 	move.w	d3,d1
 	bsr		get_tile_type
 	tst.b	(a0)	
@@ -3424,7 +3608,7 @@ check_collisions
 	
 	move.w	d2,d0
 	move.w	d3,d1	; upper
-	sub.w	#6,d1
+	sub.w	#4,d1
 	bsr		get_tile_type
 	tst.b	(a0)
 	bne.b	player_killed
@@ -3434,14 +3618,15 @@ check_collisions
    
 player_killed:
     tst.b   invincible_cheat_flag
-    bne.b   .nomatch
+    bne.b   would_be_killed
+player_really_killed
 	move.w	#PLAYER_KILL_TIMER,player_killed_timer
 	clr.w	death_frame_offset
 	clr.w	player+frame
 	lea	player_killed_sound,a0
 	bsr	play_fx
 	rts
-.nomatch
+would_be_killed
 	move.w	#$F00,$DFF180
 	rts
 	
@@ -3803,7 +3988,12 @@ update_player
     beq.b   .no_demo
     ; if fire is pressed, end demo, goto start screen
     btst    #JPB_BTN_RED,d0
-    beq.b   .no_demo_end
+    bne.b   .demo_end
+	btst	#JPB_BTN_BLU,d0
+	beq.b	.no_demo_end
+	; demo ended with "blue" => sets 2-button control
+	clr.b	one_button_control_option
+.demo_end
     clr.b   demo_mode
     move.w  #STATE_GAME_START_SCREEN,current_state
     rts
@@ -3915,27 +4105,13 @@ update_player
 .vertical
     btst    #JPB_BTN_UP,d0
     beq.b   .no_up
-    subq.w  #1,d3
-	move.w	extra_y_counter(a4),d5
-	addq.w	#1,d5
-	cmp.w	#4,d5
-	bne.b	.no_extra_y_1
-	clr.w	d5
-	subq.w	#1,d3	
-.no_extra_y_1
-	move.w	d5,extra_y_counter(a4)
+	EXTRA_ADD_TO_DX	-1,4,3,5
     bra.b   .out
 .no_up
 
     btst    #JPB_BTN_DOWN,d0
     beq.b   .no_down
-    addq.w  #1,d3
-	move.w	extra_y_counter(a4),d5
-	addq.w	#1,d5
-	cmp.w	#4,d5
-	bne.b	.no_extra_y_2
-	clr.w	d5
-	addq.w	#1,d3	
+	EXTRA_ADD_TO_DX	1,4,3,5
 .no_extra_y_2
 	move.w	d5,extra_y_counter(a4)
 .no_down
@@ -3959,13 +4135,6 @@ update_player
     rts
     
  
-
-
-
-	
-just_rts
-	rts
-	
 
 
     
@@ -4182,8 +4351,10 @@ find_slot:
 	dbf		d7,.loop
 	bra.b	.out	; no free slot...
 .found
+	; init base stuff
 	move.b	#1,active(a4)
 	clr.l	previous_address(a4)
+	clr.w	extra_y_counter(a4)
 .out
 	rts
 	
@@ -4432,6 +4603,7 @@ remove_object
 	clr.b	(NB_BYTES_PER_PLAYFIELD_LINE+1,a0)
 	; now transpose d0/d1 (d1 doesn't change) to scroll playfield
 	lea scroll_data,a1
+	;add.w	scroll_shift(pc),d0		; shift has no positive effect
 	move.w	scroll_offset(pc),d2
 	lsr.w	#3,d0
 	add.w	d0,d2
@@ -4466,7 +4638,6 @@ remove_object
 	move.l	a2,a1
 	move.w	#7,d4
 .cloop
-	; temp mark
 	clr.b	(a1)
 	clr.b	(1,a1)
 	clr.b	(NB_BYTES_PER_SCROLL_SCREEN_LINE,a1)
@@ -4503,9 +4674,14 @@ update_bombs:
 	cmp.b	#$80,d3
 	beq.b	.no_update	; end of table, not going to happen
 	ext.w	d3
+	beq.b	.no_y_add
+	; add one more y every 4 y moves (y speed kludge)
+	clr.w	d3
+	EXTRA_ADD_TO_DX	1,4,3,5
 	add.w	d3,d1
 	cmp.w	#Y_MAX-16,d1	; can't happen
 	bcc.b	.stop
+.no_y_add
 	move.b	(1,a0,d2.w),d3
 	ext.w	d3
 	sub.w	d3,d0
@@ -4586,6 +4762,23 @@ update_ufos:
 	clr.w	d2
 .no_reset
 	ext.w	d3
+	beq.b	.no_y_move
+	
+	move.w	extra_y_counter(a4),d5
+	addq.w	#1,d5
+	cmp.w	#4,d5
+	bne.b	.no_extra_y
+	tst.w	d3
+	bmi.b	.negative
+	addq.w	#1,d3
+	bra.b	.no_extra_y
+.negative
+	subq.w	#1,d3
+.no_extra_y
+	; once out of 4 times, move up, part of the y speed
+	; kludge started with player ship y move
+	move.w	d1,extra_y_counter(a4)
+.no_y_move
 	add.w	d3,d1
 	move.b	(1,a0,d2.w),d3
 	ext.w	d3
@@ -5261,7 +5454,7 @@ ye  set ys+16       ; size = 16
 
     
 ; what: checks what is below x,y
-; returns 0 out of the maze
+; returns 0 out of the grid
 ; (allows to handle edges, with a limit given by
 ; the move methods)
 ; args:
@@ -6368,6 +6561,11 @@ enemy_kill_frame
 
 stars_timer
 	dc.w	0
+stars_state_change_timer:
+	dc.w	0
+stars_on
+	dc.b	0
+	even
 current_nb_colors:
 	dc.w	0
 current_palette

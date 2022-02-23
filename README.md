@@ -23,14 +23,17 @@ FEATURES:
 CONTROLS:
 
 - joystick directions/arrows: move player
-- space/fire button: start game
+- control/left alt/fire button/second button: start game
 - P/second button: pause
 - F10 (or quitkey): quit (and save scores)
 - two button joystick/joypad: fire to shoot, second button to bomb
 - one button joystick: fire to shoot and bomb
 - when game is about to start (intro music playing), press any
   direction to change controls. If a cd32 joypad is connected, two button
-  mode is selected by default.
+  mode is selected by default. Also, if keyboard is used to launch bombs,
+  it also selects two-button mode.
+  If game is started using bomb or second button, two-button mode is also
+  selected.
 
 HOW TO PLAY:
 
@@ -55,27 +58,28 @@ CREDITS:
 
 ISSUES:
 
+- rocket take off not often enough?? specially on level 4
+  debug 1/64th avec scrolling stopped
+
 - level 5 bottom part was too low
   fixing this changes other parts so maybe there's a disrepancy 
   (also because ground level varies between levels)
 - level 4/5 filler is reverted (brick then square) in the bottom section
-- explosion removal disabled by rockets flying somehow... / explosion
-  /ufos graphics trashed (thanks to flying rockets erasure effect). RANDOM ARGGGHGHHH
-- ufo collisions not working most of the time
-- collisions with ceiling not right, make it more laxist
+  or is it the odd/even tile pattern?
+- ufo/ship collisions not working: ship nose ok ship middle misses collision
+- collisions with ceiling not right, make it more laxist: test level 5
 - shooting base of fuel tanks doesn't destroy them (level 5)
 - check initial y positions / landscape (level 1, and others)
-- apply +20% speed on all objects (ufos, rockets, bombs) see if needed
- (seems that bomb doesn't need it WTF)
-- sometimes cannot bomb objects (objects not destroyed)
+- sometimes cannot bomb objects (objects not destroyed): problem with
+  shifting + playfield vs objects planes coords
 
 TODO
 
-- animated base / explosion when desroying it
-- hide stars in levels with ceiling (2,5)
+- animated base / single (slow) explosion when desroying it
 - bombing anything: bomb explodes briefly and sound is covered by object explosion
 - shooting rockets: higher-pitched explosion
 - shooting mystery/sound: long explosion
+- demo mode
 
 BUILDING FROM SOURCES:
 
