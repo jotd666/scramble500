@@ -71,7 +71,15 @@ ISSUES:
 - collisions with ceiling not right, make it more laxist: test level 5
 - shooting base of fuel tanks doesn't destroy them (level 5)
 - check initial y positions / landscape (level 1, and others)
-- sometimes cannot bomb objects (objects not destroyed)
+- sometimes cannot bomb objects (objects not destroyed): make a test mode
+  where bombing just tells when it worked or not but don't destroy target
+  stop scrolling and test various bombing positions for the same object
+- try objects blit without cookie cut and without mask/blit pad
+- game over on blueish background: should reset to black
+- one life too many
+- end of mission: loop sound is not played
+- bombing flying rockets isn't right
+- unfair rocket flying under and destroying ship before it can be shot
 
 TODO
 

@@ -891,6 +891,21 @@ update_level_data:
 	; or .. whatever value looks good...
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE*4,stars_state_change_timer
 .no_change
+	add.w	d0,d0
+	add.w	d0,d0
+	lea	.hitbox_margin_data(pc),a0
+	move.w	(a0,d0.w),d1
+	move.w	d1,enemy_hitbox_x_margin
+	neg.w	d1
+	add.w	d1,d1
+	add.w	#16,d1	; len = 16-2*margin
+	move.w	d1,enemy_hitbox_x_len
+	move.w	(2,a0,d0.w),d1
+	move.w	d1,enemy_hitbox_y_margin
+	neg.w	d1
+	add.w	d1,d1
+	add.w	#16,d1	; len = 16-2*margin
+	move.w	d1,enemy_hitbox_y_len
 	rts
 	
 	; 0: no toggle
@@ -902,7 +917,15 @@ update_level_data:
 	dc.b	0	; level 4
 	dc.b	1	; level 5 - tunnels
 	dc.b	1	; level 6
-	
+	even
+; x/y hitbox margin on 16x16 enemies
+.hitbox_margin_data
+	dc.w	4,0	; rockets
+	dc.w	2,3	; ufos
+	dc.w	4,3	; fireballs
+	dc.w	4,0	; rockets
+	dc.w	0,0	; no enemies
+	dc.w	0,0	; no enemies
 init_new_play:
 
 	clr.w	nb_missions_completed
@@ -3180,6 +3203,7 @@ update_all
 	cmp.w	#4,level_number
 	bcc.b	.no_airborne_enemies
 
+	; collision with airborne enemies
 	lea		player(pc),a4
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
@@ -3510,14 +3534,12 @@ update_rockets
 	beq.b	.no_rocket
 	cmp.b	#ROCKET_TOP_LEFT_TILEID,(-1,a0)	
 	bne.b	.no_rocket
-	
-	;cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)	
-	;beq.b	.rocket
-	;move.w	#$F,$DFF180
-	;blitz
+	; coords are ok but map needs correction
+	; this is empiric and this is probably making up for another
+	; error in the code but that works and that's the important thing
+	; (already spent too much time trying to make that damn rocket part right)
 	;
-	;subq.w	#8,d3	; correction
-	subq.w	#1,a0	; coords are ok but map needs correction WTF
+	subq.w	#1,a0
 .rocket
 	; there's a rocket to be launched
 	; remove y from list
@@ -3526,7 +3548,7 @@ update_rockets
 	subq.w	#8,d3
 	move.w	d3,d0
 	move.w	d4,d1
-	add.w	#8,d1	; Y is shifted
+	add.w	#4,d1	; Y is slightly shifted
 	; create flying rocket
 	bsr.b	create_enemy
 	tst.w	d7
@@ -4457,13 +4479,14 @@ update_shots:
 	bra.b	.stop
 .try_enemies
 	cmp.w	#2,level_number
-	beq.b	.no_update
+	beq.b	.no_update	; no effect on fireballs
 	; see if the shot collides with an active 16x16 enemy
 	move.w	d3,d0
 	move.w	d4,d1
 	moveq.w	#2,d2	; small dimension
 	moveq.w	#2,d3	; small dimension
 	st.b	d4
+	LOGPC	100
 	bsr		object_to_enemy_collision
 	tst		d0
 	bne.b	.stop
@@ -4882,15 +4905,14 @@ update_fireballs:
 
 
 ; what: 16x16 flying object collision with bomb/shot/ship
+; depends on the level because objects don't have the same shape
+; (ufos, rockets)
 ; < D0,D1: x,y of bomb/shot/ship
-; < D2: width of colliding object of bomb/shot (4 for bomb, 2 for shot)
+; < D2: width of colliding object of bomb/shot/ship (4 for bomb, 2 for shot)
 ; < D3: height of colliding object
 ; < D4: should we score if collided
 ; trashes: nothing
 ; returns: D0.b	!= 0 if something was hit
-
-ENEMY_HITBOX_MARGIN = 4
-ENEMY_HITBOX_LEN = 16-2*ENEMY_HITBOX_MARGIN
 
 object_to_enemy_collision
 	; move existing enemies
@@ -4901,14 +4923,14 @@ object_to_enemy_collision
 	move.w	D1,d6
 	add.w	d2,d5
 	add.w	d3,d6	; d0-d5 / d1-d6: X/Y bounding box for projectile
-	move.w	#ENEMY_HITBOX_LEN,d2	; hitbox size of enemy
 .loop	
 	tst.b	active(a4)
 	beq.b	.no_update
 	bmi.b	.no_update
 
+	move.w	enemy_hitbox_x_len(pc),d2	; hitbox size of enemy
 	move.w	xpos(a4),d3
-	addq.w	#ENEMY_HITBOX_MARGIN,d3
+	add.w	enemy_hitbox_x_margin(pc),d3
 	cmp.w	d5,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
@@ -4916,7 +4938,7 @@ object_to_enemy_collision
 	bcc.b	.x_validated	; D3+D2 < D5: skip
 	; X is not validated: try lower bound of projectile
 	move.w	xpos(a4),d3
-	addq.w	#ENEMY_HITBOX_MARGIN,d3
+	add.w	enemy_hitbox_x_margin(pc),d3
 	cmp.w	d0,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
@@ -4924,8 +4946,9 @@ object_to_enemy_collision
 	bcs.b	.no_update
 .x_validated
 	; X is validated: same for Y
+	move.w	enemy_hitbox_y_len(pc),d2	; hitbox size of enemy
 	move.w	ypos(a4),d3
-	addq.w	#ENEMY_HITBOX_MARGIN,d3
+	add.w	enemy_hitbox_y_margin(pc),d3
 	cmp.w	d6,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
@@ -4933,7 +4956,7 @@ object_to_enemy_collision
 	bcc.b	.y_validated	; D3+D2 < D5: skip
 	; X is not validated: try lower bound of projectile
 	move.w	ypos(a4),d3
-	addq.w	#ENEMY_HITBOX_MARGIN,d3
+	add.w	enemy_hitbox_y_margin(pc),d3
 	cmp.w	d1,d3
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
@@ -6616,7 +6639,14 @@ nb_missions_completed
 	dc.w	0
 mission_completed_countdown
 	dc.w	0
-		
+enemy_hitbox_x_margin:
+	dc.w	0
+enemy_hitbox_y_margin:
+	dc.w	0
+enemy_hitbox_x_len:
+	dc.w	0
+enemy_hitbox_y_len:
+	dc.w	0
 play_start_music_message:
 	dc.b	0
 display_player_one_message
