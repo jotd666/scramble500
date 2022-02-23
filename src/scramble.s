@@ -3501,13 +3501,16 @@ update_rockets
 	bsr		get_tile_type
 	tst.b	(a0)	; rocket has been shot or launched
 	beq.b	.no_rocket
-	cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)	
-	beq.b	.rocket
-	move.w	#$F,$DFF180
-	;cmp.b	#ROCKET_TOP_LEFT_TILEID,(-1,a0)	
-	;bne.b	.no_rocket	; should not happen
+	cmp.b	#ROCKET_TOP_LEFT_TILEID,(-1,a0)	
+	bne.b	.no_rocket
+	
+	;cmp.b	#ROCKET_TOP_LEFT_TILEID,(a0)	
+	;beq.b	.rocket
+	;move.w	#$F,$DFF180
+	;blitz
+	;
 	;subq.w	#8,d3	; correction
-	;subq.w	#1,a0
+	subq.w	#1,a0	; coords are ok but map needs correction WTF
 .rocket
 	; there's a rocket to be launched
 	; remove y from list

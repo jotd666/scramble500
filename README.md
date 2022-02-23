@@ -50,6 +50,7 @@ CREDITS:
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
 - hajodick (EAB): game map rips from the arcade
 - Andrzej Dobrowolski (aka no9): technical advice on sfx
+- Scott Tunstall: brilliant reverse engineering work of the arcade version 
 - Frank Wille (aka phx): sfx/module player
 - meynaf: random routine
 - eab forum: useful advice & support
@@ -58,12 +59,10 @@ CREDITS:
 
 ISSUES:
 
-- rocket take off not often enough?? specially on level 4
-  debug 1/64th avec scrolling stopped
-
 - level 5 bottom part was too low
   fixing this changes other parts so maybe there's a disrepancy 
   (also because ground level varies between levels)
+  fireballs are also too low, adjust the rest first
 - level 4/5 filler is reverted (brick then square) in the bottom section
   or is it the odd/even tile pattern?
 - ufo/ship collisions not working: ship nose ok ship middle misses collision
