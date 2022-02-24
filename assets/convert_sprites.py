@@ -252,7 +252,8 @@ def process_maps():
             f.write("""
 ; provide direct top left rocket id
 ROCKET_TOP_LEFT_TILEID = {}
-""".format(rocket_tiles[0]))
+BASE_TOP_LEFT_TILEID = {}
+""".format(rocket_tiles[0],base_tiles[0]))
             f.write("\ntile_type_table:")
 
             nb_tiles = tile_id
@@ -280,6 +281,8 @@ def process_tiles(json_file):
 
     game_palette_8 = [tuple(x) for x in tiles["palette"]]
 
+    master_blit_pad = tiles.get("blit_pad",True)
+    master_generate_mask = tiles.get("generate_mask",False)
 
     x_offset = tiles["x_offset"]
     y_offset = tiles["y_offset"]
@@ -297,9 +300,9 @@ def process_tiles(json_file):
 
         if object.get("ignore"):
             continue
-        generate_mask = object.get("generate_mask",False)
+        generate_mask = object.get("generate_mask",master_generate_mask)
 
-        blit_pad = object.get("blit_pad",True)
+        blit_pad = object.get("blit_pad",master_blit_pad)
         gap = object.get("gap",0)
         name = object["name"]
 

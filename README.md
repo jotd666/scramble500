@@ -59,31 +59,19 @@ CREDITS:
 
 ISSUES:
 
-- ufo/ship collisions not working  proper: ship nose ok ship middle misses collision
-- rocket shoot fails on top half of rocket
-- ufo shoot fails on top half of ufo
-- ufo shoot works too well on bottom half of ufo
-- level 5 bottom part was too low
-  fixing this changes other parts so maybe there's a disrepancy 
-  (also because ground level varies between levels)
 - level 4/5 filler is reverted (brick then square) in the bottom section
   or is it the odd/even tile pattern?
-- collisions with ceiling not right, make it more laxist: test level 5
-- shooting base of fuel tanks doesn't destroy them (level 5)
-- check initial y positions / landscape (level 1, and others)
 - sometimes cannot bomb objects (objects not destroyed): make a test mode
   where bombing just tells when it worked or not but don't destroy target
   stop scrolling and test various bombing positions for the same object
-- try objects blit without cookie cut and without mask/blit pad
-- game over on blueish background: should reset to black
-- one life too many
-- end of mission: loop sound is not played
-- bombing flying rockets isn't right
-- unfair rocket flying under and destroying ship before it can be shot
+- lives not displayed on startup (with music)
+- lockup on CDTV !
+- sometimes shooting an object only shoots half of the object
+  (test if there's a shift and make it up)
 
 TODO
 
-- animated base / single (slow) explosion when desroying it
+- animated base / single explosion when desroying it
 - bombing anything: bomb explodes briefly and sound is covered by object explosion
 - shooting rockets: higher-pitched explosion
 - shooting mystery/sound: long explosion

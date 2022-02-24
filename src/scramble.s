@@ -88,14 +88,15 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
-
+;X_SHIP_START = 57
+;Y_SHIP_START = 99
 ;HIGHSCORES_TEST
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 3
+START_LEVEL = 6
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -126,7 +127,7 @@ NB_HIGH_SCORES = 10
 START_SCORE = 0
 	ENDC
 	IFND	START_NB_LIVES
-START_NB_LIVES = 3+1
+START_NB_LIVES = 3
 	ENDC
 	IFND	START_LEVEL
 START_LEVEL = 1
@@ -158,7 +159,12 @@ SCREEN_PLANE_SIZE = NB_BYTES_PER_LINE*NB_LINES
 SCROLL_PLANE_SIZE = NB_BYTES_PER_SCROLL_SCREEN_LINE*NB_LINES
 NB_PLANES   = 3
 
+	IFND	X_SHIP_START
+X_SHIP_START = 8+X_SHIP_MIN
+	ENDC
+	IFND	Y_SHIP_START
 Y_SHIP_START = 57
+	ENDC
 X_MAX=240
 Y_MAX=224
 X_SHIP_MIN=16	; min so we can see it fully
@@ -626,6 +632,8 @@ intro:
 	; restart at level 1
 	clr.w	level_number
 	bsr	update_level_set_data
+	bsr	play_ambient_sound
+
     bra.b   .new_mission
 .life_lost
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -638,8 +646,8 @@ intro:
     tst.b   demo_mode
     beq.b   .no_demo
     ; lose one life in demo mode: return to intro
-    move.w  #STATE_GAME_OVER,current_state
-    move.l  #1,state_timer
+	bsr		set_game_over
+	st.b	fast_game_over_flag
     bra.b   .game_over
 .no_demo
    
@@ -700,8 +708,7 @@ intro:
     bsr     save_highscores
 .no_save
     ; 3 seconds
-    move.l  #GAME_OVER_TIMER,state_timer
-    move.w  #STATE_GAME_OVER,current_state
+    bsr		set_game_over
     bra.b   .game_over
 .out      
     ; quit
@@ -771,6 +778,12 @@ init_bitplanes_copperlist:
     add.l #SCROLL_PLANE_SIZE,d2       ; next plane
 
     dbf d4,.mkcl
+	rts
+
+set_game_over:
+	clr.b	fast_game_over_flag
+    move.w  #STATE_GAME_OVER,current_state
+    move.l  #GAME_OVER_TIMER,state_timer
 	rts
 	
 ; < A0: palette
@@ -877,6 +890,9 @@ update_level_set_data
 	move.b	d1,fuel_depletion_timer
 	; continue for level itself (first level)
 update_level_data:
+	clr.l	base_dest_address
+	clr.w	base_frame_subcounter
+	clr.w	base_frame_counter
 	move.w	level_number(pc),d0
 	beq.b	.rockets_fly
 	cmp.w	#3,d0
@@ -884,13 +900,15 @@ update_level_data:
 	seq		rockets_fly_flag
 	
 	; stars show/hide
-	lea	.stars_change_table(pc),a0
-	tst.b	(a0,d0.w)
+	lea	.stars_active_table(pc),a0
+	move.b	(a0,d0.w),d1
+	cmp.b	stars_on(pc),d1
 	beq.b	.no_change
 	; change when ceiling tile reaches the first position
 	; or .. whatever value looks good...
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE*4,stars_state_change_timer
 .no_change
+	move.b	d1,stars_next_state
 	add.w	d0,d0
 	add.w	d0,d0
 	lea	.hitbox_margin_data(pc),a0
@@ -908,14 +926,12 @@ update_level_data:
 	move.w	d1,enemy_hitbox_y_len
 	rts
 	
-	; 0: no toggle
-	; 1: toggle
-.stars_change_table:
-	dc.b	0
-	dc.b	1	; level 2 - caverns
+.stars_active_table:
+	dc.b	1
+	dc.b	0	; level 2 - caverns
 	dc.b	1	; level 3
-	dc.b	0	; level 4
-	dc.b	1	; level 5 - tunnels
+	dc.b	1	; level 4
+	dc.b	0	; level 5 - tunnels
 	dc.b	1	; level 6
 	even
 ; x/y hitbox margin on 16x16 enemies
@@ -931,16 +947,14 @@ init_new_play:
 	clr.w	nb_missions_completed
 	
     move.b  #START_NB_LIVES,nb_lives
-	IFD		DIRECT_GAME_START
-	; doesn't have the start screen, we need to make up
-	; for the extra life display & life removal
-	subq.b	#1,nb_lives
-	ENDC
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
     move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
+	IFD		DIRECT_GAME_START
+	bsr		play_ambient_sound
+	ENDC
  
 	bsr		update_level_set_data
 	
@@ -1112,7 +1126,7 @@ update_stars
 	bmi.b	.update
 	bne.b	.decrease
 	clr.w	stars_timer
-	eor.b	#$FF,stars_on
+	move.b	stars_next_state(pc),stars_on
 .decrease
 	subq.w	#1,stars_state_change_timer
 .update
@@ -1205,7 +1219,7 @@ init_player:
 	clr.w	extra_y_counter(a0)
 	
 
-    move.w  #8+X_SHIP_MIN,xpos(a0)
+    move.w  #X_SHIP_START,xpos(a0)
 	move.w	#Y_SHIP_START,ypos(a0)
     
 	
@@ -1462,7 +1476,9 @@ draw_all
     bsr write_color_string
 	
 	; artifically display all 3 lives at start
+	addq.b	#1,nb_lives
 	bsr	draw_lives
+	subq.b	#1,nb_lives
 	; real number of remaining lives (plus the one in play)
 .no_play
 	; controller option (amiga specific)
@@ -1499,7 +1515,8 @@ PLAYER_ONE_Y = 102-14
     bsr clear_playfield_planes
 	; re-set stars if was off
 	bsr		init_stars
-
+	; color0: force to black
+	move.w	#$0,colors+2
     move.w  #72,d0
     move.w  #136,d1
     move.w  #WHITE_COLOR,d2   ; red
@@ -1628,7 +1645,7 @@ draw_table
 	dc.l	draw_fireballs
 	dc.l	draw_flying_rockets
 	dc.l	nothing
-	dc.l	nothing
+	dc.l	draw_base
 
 nothing
 	rts
@@ -1712,6 +1729,15 @@ draw_tiles:
 	; store rocket position
 	move.w	d6,(a4)
 .no_rocket
+	; check if not rocket top/left
+	cmp.b	#BASE_TOP_LEFT_TILEID,d0
+	bne.b	.no_base
+	; store base X/Y position
+	move.l	a1,base_dest_address
+	; how many pixels before hiding and not blitting
+	; the base?
+	move.w	#(NB_BYTES_PER_PLAYFIELD_LINE-2)*8,base_x_pos
+.no_base
 	bsr		.copy_tile
 
 	dbf		d2,.lowerloop
@@ -1784,8 +1810,42 @@ draw_tiles:
 	move.l	(a7)+,a0
 	rts
 	
-	
-	
+draw_base
+	move.l	base_dest_address(pc),d0
+	beq.b	.no_draw
+	move.l	d0,a1
+	move.l	d0,.previous
+	lea		base_table(pc),a0
+	move.w	base_frame_counter(pc),d0
+	move.l	(a0,d0.w),a0
+	bsr		blit_16x16_scroll_object
+	rts
+.no_draw
+	move.l	.previous(pc),d0
+	beq.b	.out
+	move.l	d0,a1
+	bsr		.clear_object
+	move.l	d0,a1
+	sub.w	#NB_BYTES_PER_PLAYFIELD_LINE,a1
+	cmp.l	#scroll_data,a1
+	bcc.b	.do
+	add.w	#NB_BYTES_PER_PLAYFIELD_LINE*2,a1
+.do
+	bsr		.clear_object
+.out
+	rts
+.clear_object
+	moveq.w	#1,d1
+.cloop
+	REPT	16
+	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a1)
+	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE+1,a1)
+	ENDR
+	add.w	#SCROLL_PLANE_SIZE,a1
+	dbf	d1,.cloop
+	rts
+.previous
+	dc.l	0
 ; < D2: highscore
 draw_high_score
     move.w  #120+40,d0
@@ -2841,8 +2901,8 @@ level2_interrupt:
     beq.b   .no_esc
     cmp.w   #STATE_GAME_START_SCREEN,current_state
     beq.b   .no_esc
-    move.l  #1,state_timer
-    move.w  #STATE_GAME_OVER,current_state
+    bsr		set_game_over
+	st.b	fast_game_over_flag
 .no_esc
     
     cmp.w   #STATE_PLAYING,current_state
@@ -3146,6 +3206,12 @@ update_all
     bsr stop_sounds
     move.w  #STATE_INTRO_SCREEN,current_state
 .cont
+	tst.b	fast_game_over_flag
+	beq.b	.normal
+	clr.b	fast_game_over_flag
+	clr.l	state_timer
+	rts
+.normal
     subq.l  #1,state_timer
     rts
     ; update
@@ -3207,7 +3273,7 @@ update_all
 	lea		player(pc),a4
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
-	move.w	#24,d2
+	move.w	#23,d2		; last pixel is forgiving
 	move.w	#8,d3
 	addq.w	#8,d0
 	addq.w	#4,d1
@@ -3310,6 +3376,24 @@ update_base:
 	; mission is complete
 	st.b	game_completed_flag
 .out
+	subq.w	#1,base_x_pos
+	bne.b	.no_left
+	clr.l	base_dest_address
+.no_left
+	move.w	base_frame_subcounter(pc),d0
+	addq.w	#1,d0
+	cmp.w	#6,d0
+	bne.b	.no_wrap
+	move.w	base_frame_counter(pc),d1
+	addq.w	#4,d1
+	cmp.w	#12,d1
+	bne.b	.no_wrap_2
+	clr.w	d1
+.no_wrap_2
+	move.w	d1,base_frame_counter
+	clr.w	d0
+.no_wrap
+	move.w	d0,base_frame_subcounter
 	rts
 	
 update_fuel_alarm
@@ -3393,12 +3477,7 @@ draw_scrolling_tiles
 	addq.w	#1,level_number
 	st.b	next_level_flag
 	bsr		update_level_data
-	moveq.w	#1,d0
-	cmp.w	#1,level_number
-	bne.b	.no_special_sound_loop
-	moveq.w	#2,d0
-.no_special_sound_loop
-	bsr		play_music
+	bsr		play_ambient_sound
 .no_end
 	move.l	a6,map_pointer
 	
@@ -3434,7 +3513,14 @@ draw_scrolling_tiles
 .no_new_tiles	
 	rts
 	
-
+play_ambient_sound
+	moveq.w	#1,d0
+	cmp.w	#1,level_number
+	bne.b	.no_special_sound_loop
+	moveq.w	#2,d0
+.no_special_sound_loop
+	bra		play_music
+	
 	
 update_scrolling
 	; now we have to copy what we just created so when we
@@ -4486,7 +4572,6 @@ update_shots:
 	moveq.w	#2,d2	; small dimension
 	moveq.w	#2,d3	; small dimension
 	st.b	d4
-	LOGPC	100
 	bsr		object_to_enemy_collision
 	tst		d0
 	bne.b	.stop
@@ -4914,11 +4999,12 @@ update_fireballs:
 ; trashes: nothing
 ; returns: D0.b	!= 0 if something was hit
 
-object_to_enemy_collision
-	; move existing enemies
+object_to_enemy_collision:
 	movem.l	d1-d7/a4,-(a7)
 	move.w	#MAX_NB_AIRBORNE_ENEMIES-1,d7
 	lea		airborne_enemies(pc),a4
+
+
 	move.w	D0,d5
 	move.w	D1,d6
 	add.w	d2,d5
@@ -4928,41 +5014,37 @@ object_to_enemy_collision
 	beq.b	.no_update
 	bmi.b	.no_update
 
+; condition for intersection
+;
+; !(r2.left > r1.right
+;        || r2.right < r1.left
+;        || r2.top > r1.bottom
+;        || r2.bottom < r1.top);
+		
 	move.w	enemy_hitbox_x_len(pc),d2	; hitbox size of enemy
 	move.w	xpos(a4),d3
 	add.w	enemy_hitbox_x_margin(pc),d3
-	cmp.w	d5,d3
+; !(r2.left > r1.right
+	cmp.w	d5,d3	 ; D5: x obj max, d3: x nme min
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
-	cmp.w	d5,d3
-	bcc.b	.x_validated	; D3+D2 < D5: skip
-	; X is not validated: try lower bound of projectile
-	move.w	xpos(a4),d3
-	add.w	enemy_hitbox_x_margin(pc),d3
-	cmp.w	d0,d3
-	bcc.b	.no_update	; D3 >= D5: skip
-	add.w	d2,d3
-	cmp.w	d0,d3
-	bcs.b	.no_update
-.x_validated
-	; X is validated: same for Y
+;        || r2.right < r1.left
+	cmp.w	d3,d0	; D0: x obj min, d3: x nme max
+	bcc.b	.no_update	; D3+D2 < D5: skip
+	
+	; vertical part
 	move.w	enemy_hitbox_y_len(pc),d2	; hitbox size of enemy
 	move.w	ypos(a4),d3
 	add.w	enemy_hitbox_y_margin(pc),d3
-	cmp.w	d6,d3
+
+	cmp.w	d6,d3	 ; D5: x obj max, d3: x nme min
 	bcc.b	.no_update	; D3 >= D5: skip
 	add.w	d2,d3
-	cmp.w	d6,d3
-	bcc.b	.y_validated	; D3+D2 < D5: skip
-	; X is not validated: try lower bound of projectile
-	move.w	ypos(a4),d3
-	add.w	enemy_hitbox_y_margin(pc),d3
-	cmp.w	d1,d3
-	bcc.b	.no_update	; D3 >= D5: skip
-	add.w	d2,d3
-	cmp.w	d1,d3
-	bcs.b	.no_update
-.y_validated
+;        || r2.right < r1.left
+	cmp.w	d3,d1	; D1: y obj min, d3: y nme max
+	bcc.b	.no_update	; D3+D2 < D5: skip
+	
+	; insersection validated
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
 	moveq	#1,d2
@@ -6613,12 +6695,21 @@ stars_state_change_timer:
 	dc.w	0
 stars_on
 	dc.b	0
+stars_next_state:
+	dc.b	0
 	even
 current_nb_colors:
 	dc.w	0
+base_x_pos:
+	dc.w	0
 current_palette
 	dc.l	0
-
+base_frame_counter:
+	dc.w	0
+base_frame_subcounter:
+	dc.w	0
+base_dest_address:
+	dc.l	0
 map_pointer
 	dc.l	0
 scroll_offset
@@ -6666,6 +6757,8 @@ fuel_depetion_current_timer:
 update_fuel_message:
 	dc.b	0
 alive_timer
+	dc.b	0
+fast_game_over_flag:
 	dc.b	0
 rockets_fly_flag:
 	dc.b	0
@@ -6722,7 +6815,9 @@ flying_rocket_sprite_table:
 	dc.l	flying_rocket_1,flying_rocket_2
 mystery_sprite_table:
 	dc.l	score_100,score_100,score_200,score_300
-		
+
+base_table
+	dc.l	base_1,base_2,base_3
 fireball_table:
 	dc.l	fireball_1,fireball_2,fireball_3,fireball_4,fireball_3,fireball_2
 
@@ -7179,7 +7274,23 @@ flying_rocket_2:
 flying_rocket_mask
 	ds.w	64,0	; 2 empty planes, then mask
 	incbin	"rocket_mask.bin"
+
+FULL_16X16_MASK:MACRO
+	REPT	16
+	dc.l	-1
+	ENDR
+	ENDM
 	
+base_1:
+	incbin	"boss_1.bin"
+	FULL_16X16_MASK
+base_2:
+	incbin	"boss_2.bin"
+	FULL_16X16_MASK
+base_3:
+	incbin	"boss_3.bin"
+	FULL_16X16_MASK
+		
 score_100
 	incbin	"score_100.bin"
 score_200
@@ -7277,6 +7388,8 @@ star_sprite:
 empty_sprite
     dc.l    0,0
 
+
+	
 music
 	incbin	"scramble_intro.mod"
 	

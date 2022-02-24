@@ -5,45 +5,50 @@
 "y_offset":0,
  "width" : 16,
  "height" : 16,
+  "generate_mask":true,
  "horizontal" : true,
  "objects":[
+ {"name":"rocket_mask",
+ "generate_mask":false,
+ "sprite_palette":[[0, 0, 0],[0,0,208]],
+ "start_x":176,
+ "start_y":138
+},
+
  {"name":"rocket_1",
-  "generate_mask":true,
+  
 "start_x":1,
  "start_y":115
  },
 {"name":"rocket_2",
- "generate_mask":true,
+
  "start_x":1,
  "start_y":133
  },
  {"name":"boss_1",
-
+"generate_mask":false,
  "start_x":37,
  "start_y":97
  },
  {"name":"boss_2",
-
+"generate_mask":false,
  "start_x":37,
  "start_y":115
  },
  {"name":"boss_3",
-
+"generate_mask":false,
  "start_x":37,
  "start_y":133
  },
  {"name":"score_100",
- "generate_mask":true,
  "start_x":73,
  "start_y":97
  },
  {"name":"score_200",
- "generate_mask":true,
  "start_x":73,
  "start_y":115
  },
  {"name":"score_300",
- "generate_mask":true,
  "start_x":73,
  "start_y":133
  }
