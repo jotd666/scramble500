@@ -71,10 +71,6 @@ ISSUES:
 
 TODO
 
-- animated base / single explosion when desroying it
-- bombing anything: bomb explodes briefly and sound is covered by object explosion
-- shooting rockets: higher-pitched explosion
-- shooting mystery/sound: long explosion
 - demo mode
 
 BUILDING FROM SOURCES:

@@ -88,7 +88,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -96,7 +96,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-START_LEVEL = 6
+;START_LEVEL = 6
 ;START_FUEL = 40
 
 ; temp if nonzero, then records game input, intro music doesn't play
@@ -1207,7 +1207,7 @@ init_player:
 
 	move.b	fuel_depletion_timer(pc),fuel_depetion_current_timer
 
-
+	clr.w	delayed_fx_countdown
 	clr.w	scroll_offset
 	clr.w	playfield_palette_index
 	clr.w	d0
@@ -3262,6 +3262,18 @@ update_all
 	move.l	(a0,d0.w),a0
 	jsr		(a0)
 	
+	; play pending fx if any
+	move.w	delayed_fx_countdown(pc),d0
+	beq.b	.no_fx_pending
+	subq.w	#1,d0
+	bne.b	.no_fx
+	move.l	delayed_fx(pc),a0
+	bsr		play_fx_if_player_alive
+	clr.w	d0
+.no_fx
+	move.w	d0,delayed_fx_countdown
+.no_fx_pending
+
 	bsr	update_fuel_alarm
     bsr update_player
     tst.w   player_killed_timer
@@ -4560,6 +4572,7 @@ update_shots:
 	bsr		get_tile_type
 	tst.b	(a0)
 	beq.b	.try_enemies
+	clr.w	d0
 	bsr.b	something_was_hit
 	; shot disables on scenery or targets
 	bra.b	.stop
@@ -4587,8 +4600,11 @@ update_shots:
 ; < A0: pointer on screen tile map
 ; (obviously contains non-zero tile)
 ; < A1: pointer on tile type to tile flags conversion table
+; < D0: 0 if shot, 1 if bomb
+; trashes: a lot
 
 something_was_hit
+	move	d0,d6
 	move.b	(a0),d2
 	cmp.b	#FILLER_TILE,d2
 	beq.b	.scenery_shot	; sometimes bomb go through the surface
@@ -4667,13 +4683,15 @@ something_was_hit
 	move.l	(a1,d1.w),a1	; graphics
 	exg.l	a0,a1			; swap as A0 is source and A1 dest
 	bsr		blit_16x16_scroll_object
-	lea		bomb_hits_ground_sound,a0
-	bsr		play_fx	
 	bra.b	.object_shot
 .base_shot
+	moveq.w	#1,d2
+	bsr		create_explosion
+
 	move.l	#80,d0		; 800 points
 	bsr		add_to_score
 	; mission is now completed
+	clr.l	base_dest_address
 	move.w	#ORIGINAL_TICKS_PER_SEC*2,mission_completed_countdown
 	bra.b	.object_shot
 .fuel_shot
@@ -4685,9 +4703,8 @@ something_was_hit
 	bsr		add_to_score
 	move.w	#48,d0
 	bsr		add_to_fuel
+
 	
-	lea		bomb_hits_ground_sound,a0
-	bsr		play_fx	
 	bra.b	.object_shot
 .rocket_shot
 	; create an explosion for the object
@@ -4697,12 +4714,25 @@ something_was_hit
 
 	moveq.l	#5,d0		; ground rocket: 50 points
 	bsr		add_to_score
+	tst		d6
+	beq.b	.play_now
+	; bomb: explode once and delay the other explosion
 	lea		rocket_explodes_sound,a0
-	bsr		play_fx
+	move.w	#15,d0
+	bsr		play_delayed_fx
+	bra.b	.object_shot
+.play_now
+	lea		rocket_explodes_sound,a0
+	bsr		play_fx_if_player_alive
 .scenery_shot
-
 	rts
 .object_shot
+	tst		d6
+	beq.b	.shot
+	; bomb: explode once and delay the other explosion
+	lea		bomb_hits_ground_sound,a0
+	bsr		play_fx_if_player_alive	
+.shot
 	rts
 
 .mystery_score
@@ -4821,6 +4851,7 @@ update_bombs:
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
 	bsr		create_explosion
+	moveq	#1,d0
 	bsr		something_was_hit
 	
 	lea		bomb_hits_ground_sound,a0
@@ -6720,6 +6751,10 @@ playfield_palette_index
 	dc.w	0
 playfield_palette_timer
 	dc.w	0
+delayed_fx_countdown
+	dc.w	0
+delayed_fx
+	dc.l	0
 fuel:
 	dc.w	0
 low_fuel_sound_timer
@@ -6989,7 +7024,12 @@ ship_sprite_table
     UBYTE   ss_pri
     LABEL   Sound_SIZEOF
     
-    
+; < A0: sound struct
+; < D0: ticks before triggering play
+play_delayed_fx  
+	move.w	d0,delayed_fx_countdown
+	move.l	a0,delayed_fx
+	rts
 ; < A0: sound struct
 play_fx:
     tst.b   demo_mode
@@ -6998,7 +7038,10 @@ play_fx:
     bra _mt_playfx
 .no_sound
     rts
-    
+play_fx_if_player_alive
+	tst.w	player_killed_timer
+	bmi.b	play_fx
+	rts
 
 ; < D0: track start number
 play_music:
