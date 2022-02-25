@@ -154,21 +154,21 @@ _detect_controller_types:
 _joystick:
 
 	moveq	#0,d0
+	move.l	a0,-(a7)	; put input 0 output in joy0
 	bsr	_read_joystick
 
-		movem.l	a0,-(a7)	; put input 0 output in joy0
-		lea	joy0(pc),a0
-		move.l	d0,(a0)		
-		movem.l	(a7)+,a0
+	lea	joy0(pc),a0
+	move.l	(a0),previous_joy0
+	move.l	d0,(a0)		
 
 	moveq	#1,d0
 	bsr	_read_joystick
 
-		movem.l	a0,-(a7)	; put input 1 output in joy1
-		lea	joy1(pc),a0
-		move.l	d0,(a0)		
+	lea	joy1(pc),a0
+	move.l	(a0),previous_joy1
+	move.l	d0,(a0)		
 	
-		movem.l	(a7)+,a0
+	move.l	(a7)+,a0
 
 	rts	
 
@@ -312,6 +312,8 @@ _read_joystick:
 
 joy0		dc.l	0		
 joy1		dc.l	0
+previous_joy0		dc.l	0		
+previous_joy1		dc.l	0
 third_button_maps_to:
     dc.l    JPF_BTN_PLAY
 controller_joypad_0:

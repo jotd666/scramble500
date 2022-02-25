@@ -45,11 +45,14 @@ HOW TO PLAY:
 - level 5: navigate up and down without hitting the walls
 - level 6: destroy base
 
+If you complete all the levels, game restarts at level 1, but this
+time fuel decreases faster.
+
 CREDITS:
 
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
 - hajodick (EAB): game map rips from the arcade
-- Andrzej Dobrowolski (aka no9): technical advice on sfx
+- Andrzej Dobrowolski (aka no9): music & sfx loops (plus sfx advice)
 - Scott Tunstall: brilliant reverse engineering work of the arcade version 
 - Frank Wille (aka phx): sfx/module player
 - meynaf: random routine
@@ -57,17 +60,16 @@ CREDITS:
 - 125scratch: sprite rips https://www.spriters-resource.com/arcade/scramble
 - konami: original game :)
 
-ISSUES:
+MINOR ISSUES:
 
-- level 4/5 filler is reverted (brick then square) in the bottom section
+- level 4/5 filler bricks are wrong (brick then square) in the bottom section
   or is it the odd/even tile pattern?
-- center the screen
-- scrolling is flickering on slow cpus
-- use blitter to copy tiles
 
 TODO
 
-- demo mode
+- demo mode (locked if demo goes through)
+- demo mode (trashed if demo is stopped by start instead of: TO TEST)
+- center the screen
 
 BUILDING FROM SOURCES:
 

@@ -100,6 +100,10 @@ Execbase  = 4
 ;START_FUEL = 40
 ; no destructions, can bomb object forever if set
 ;BOMB_TEST_MODE
+; uncomment to test demo mode right now
+;TEST_DEMO_MODE
+; speed up intro if < 60
+;INTRO_TICKS_PER_SEC = 20
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -147,6 +151,10 @@ NB_TICKS_PER_SEC = 50
 ; game logic ticks
 ORIGINAL_TICKS_PER_SEC = 60
 
+	IFND	INTRO_TICKS_PER_SEC
+INTRO_TICKS_PER_SEC = ORIGINAL_TICKS_PER_SEC
+	ENDC
+	
 WHITE_COLOR = $CCD
 
 NB_BYTES_PER_LINE = 40
@@ -292,6 +300,15 @@ EXTRA_ADD_TO_DX:MACRO
 	move.w	d\4,extra_y_counter(a\2)
 	ENDM
 	
+
+; macro requires A5 to point on custom
+WAIT_BLITTER:MACRO
+	TST.B	$BFE001
+.wait\@
+	BTST	#6,(dmaconr,a5)
+	BNE.S	.wait\@
+	ENDM
+	
 ; jump table macro, used in draw and update
 DEF_STATE_CASE_TABLE:MACRO
     move.w  current_state(pc),d0
@@ -422,8 +439,9 @@ Start:
     move.w  #STATE_INTRO_SCREEN,current_state
     
     IFND    RECORD_INPUT_TABLE_SIZE
-    ; uncomment to test demo mode right now
-    ;;st.b    demo_mode
+	IFD		TEST_DEMO_MODE
+    st.b    demo_mode
+	ENDC
     ENDC
     
     move.w  #-1,high_score_position
@@ -463,9 +481,11 @@ Start:
 intro:
     lea _custom,a5
     clr.w bplcon1(a5)                     ; reset scrolling shift to 0
-    move.w #0,bpl2mod(a5)                ; modulo of 2nd playfield 0 
+    clr.w bpl2mod(a5)                ; modulo of 2nd playfield 0 
 	; (to be able to draw ships with a "classic" blit routine in the "SCORE" screen)
-
+	clr.w	d0
+	bsr		set_playfield_planes	; no scroll offset
+	
     move.w  #$7FFF,(intena,a5)
     move.w  #$7FFF,(intreq,a5)
 
@@ -474,7 +494,8 @@ intro:
 	bsr		load_palette	
     
     bsr clear_screen
-    
+    bsr	clear_playfield_planes
+	
 	;bsr	init_scroll_mask_sprite
 	bsr	init_stars
 	
@@ -493,7 +514,7 @@ intro:
 	move.w	#1,cheat_keys	; enable cheat in that mode, we need to test the game
     bra.b   .restart
     ENDC
-    
+
 .intro_loop    
     cmp.w   #STATE_INTRO_SCREEN,current_state
     bne.b   .out_intro
@@ -508,9 +529,9 @@ intro:
 	clr.b	one_button_control_option
 .exit_intro
     clr.b   demo_mode
-.out_intro    
+.out_intro
 
-
+	clr.b	play_start_music_message
     clr.l   state_timer
     move.w  #STATE_GAME_START_SCREEN,current_state
 	clr.b	game_started_flag
@@ -544,20 +565,28 @@ intro:
     btst    #JPB_BTN_BLU,d0
     bne.b   .wait_fire_release
 .no_credit
-	st.b	play_start_music_message
+	move.b	#1,play_start_music_message
 	clr.b	display_player_one_message
+	
+	move.w	#1,start_music_countdown	; default: no wait (demo mode / moves record)
+	
+	IFND		RECORD_INPUT_TABLE_SIZE
+	tst.b	demo_mode
+	bne.b	.wait_end_of_music
+	
 	move.w	#3*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,start_music_countdown
+	ENDC
 .wait_end_of_music
 	cmp.w	#STATE_PLAYING,current_state
 	bne.b	.wait_end_of_music
 	
 .restart    
     lea _custom,a5
-    move.w  #$7FFF,(intena,a5)
+    move.w  #$1FFF,(intena,a5)
     
     bsr init_new_play
 
-.new_mission  
+.new_mission
     lea objects_palette,a0
 	move.w	#8,d0		; 8 colors
 	bsr		load_palette		
@@ -568,7 +597,7 @@ intro:
     bsr draw_score    
     bsr init_level
     lea _custom,a5
-    move.w  #$7FFF,(intena,a5)
+    move.w  #$1FFF,(intena,a5)
 
     bsr wait_bof
     
@@ -579,7 +608,6 @@ intro:
     
     move.w  level_number(pc),d0
 
-
     ; enable copper interrupts, mainly
     moveq.l #0,d0
     bra.b   .from_level_start
@@ -589,12 +617,10 @@ intro:
     move.b  d0,new_life_restart ; used by init player
     bsr init_enemies
     bsr init_player
-   
 	
     bsr wait_bof
 
-	
-	; set playfield modulo in scroll mode
+	; set playfield modulo in scroll mode (wider)
     move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE,bpl2mod(a5)
 	bsr	init_bitplanes_copperlist
     
@@ -615,8 +641,9 @@ intro:
     bne.b   .out
     DEF_STATE_CASE_TABLE
     
+	; from mainloop: return to intro loop
 .game_start_screen
-.intro_screen       ; not reachable from mainloop
+.intro_screen
     bra.b   intro
 
 .playing
@@ -1458,7 +1485,7 @@ draw_all
 ; draw intro screen
 .intro_screen
     bra.b   draw_intro_screen
-; draw bonus screen
+; draw game start screen
     
 .game_start_screen
     tst.l   state_timer
@@ -2052,6 +2079,7 @@ draw_intro_screen
     bra draw_copyright
     
 .init3
+	
     bsr clear_screen
     ; characters
     move.w  #56,d0
@@ -3085,7 +3113,6 @@ level3_interrupt:
     moveq.l #1,d0
     bsr _read_joystick
     
-    
     btst    #JPB_BTN_BLU,d0
     beq.b   .no_second
     move.l  joystick_state(pc),d2
@@ -3132,6 +3159,8 @@ level3_interrupt:
 	; set RIGHT
     bset    #JPB_BTN_RIGHT,d0
 .no_right    
+	; store previous joystick AND keyboard state
+	move.l	joystick_state(pc),previous_joy1
     move.l  d0,joystick_state
     move.w  #$0020,(intreq,a5)
     movem.l (a7)+,d0-a6
@@ -3162,14 +3191,16 @@ update_all
     
 .game_start_screen
 	addq.l	#1,state_timer
+	tst.b	play_start_music_message
+	beq.b	.not_started
 	tst.b	demo_mode
 	bne.b	.play
-	tst.b	play_start_music_message
+	cmp.b	#2,play_start_music_message
 	beq.b	.no_play
 	st.b	game_started_flag
 	moveq	#0,d0
     bsr.b	play_music
-	clr.b	play_start_music_message
+	move.b	#2,play_start_music_message
 	st.b	display_player_one_message
 .no_play
 	move.w	start_music_countdown(pc),d0
@@ -3183,8 +3214,7 @@ update_all
 	tst.b	game_started_flag
 	beq.b	.not_started
 	move.l	joystick_state(pc),d0
-	move.l	previous_joy_input(pc),d1
-	move.l	d0,previous_joy_input
+	move.l	previous_joy1(pc),d1
 	move.l	#JPF_BTN_LEFT|JPF_BTN_RIGHT|JPF_BTN_UP|JPF_BTN_DOWN,d2
 	and.l	d2,d0
 	beq.b	.no_dir_change
@@ -3436,9 +3466,63 @@ update_fuel_alarm
 	move.w	#1,low_fuel_sound_timer
 	rts
 	
-	
+
 copy_tiles
+	; source offset
+	move.w	scroll_offset(pc),d1
+	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
+	add.w	d1,d0
 	
+	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a2	; base
+	lea		(a2,d0.w),a0	; source
+	lea		(-2,a2,d1.w),a1	; dest
+	
+
+    lea $DFF000,A5
+	moveq.l #-1,d3	;masking of first/last word : no mask   
+
+    move.l  #$09f00000,d5    ;A->D copy, ascending mode
+
+	; 16 pixels + no shift bytes (word aligned blit)
+	move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-2,d0
+ 
+	move.w	#((Y_MAX-16)<<6)+1,d4	; height + width are hardcoded
+	; now we have 2 blits to perform, one per plane
+	
+    ; now just wait for blitter ready to write all registers
+	WAIT_BLITTER
+    
+    ; blitter registers set
+    move.l  d3,bltafwm(a5)
+	move.l d5,bltcon0(a5)	
+	move.w d0,bltamod(a5)		;A modulo=bytes to skip between lines	
+    move.w  d0,bltdmod(a5)	;D modulo
+	
+	move.l a0,bltapt(a5)	;source graphic top left corner
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+	
+	add.w	#SCROLL_PLANE_SIZE,a0
+	add.w	#SCROLL_PLANE_SIZE,a1
+	
+	; second plane
+	
+	WAIT_BLITTER
+    
+    ; blitter registers set
+    move.l  d3,bltafwm(a5)
+	move.l d5,bltcon0(a5)	
+	move.w d0,bltamod(a5)		;A modulo=bytes to skip between lines	
+    move.w  d0,bltdmod(a5)	;D modulo
+	
+	move.l a0,bltapt(a5)	;source graphic top left corner
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+	rts
+		
+	; this is the old tile copy routine, using only CPU
+	IFEQ	1
+copy_tiles_cpu
 	; source offset
 	move.w	scroll_offset(pc),d1
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
@@ -3466,6 +3550,7 @@ copy_tiles
 	add.w	d6,a1
 	dbf		d4,.ploop
 	rts
+	ENDC
 	
 ; draws zero or one tile column
 ; each time we scroll by 8 pixels
@@ -3509,11 +3594,31 @@ draw_scrolling_tiles
 	
 	
 	; update screen pointer for playfield 2
+	move.w	scroll_offset(pc),d0
+	bsr		set_playfield_planes
+	
+	
+	; acknowledge draw tile message
+	clr.b	draw_tile_column_message
 
+.no_new_tiles	
+	rts
+	
+play_ambient_sound
+	moveq.w	#1,d0
+	cmp.w	#1,level_number
+	bne.b	.no_special_sound_loop
+	moveq.w	#2,d0
+.no_special_sound_loop
+	bra		play_music
+	
+
+; < D0: scroll offset
+set_playfield_planes:
     moveq #1,d4		; no need for the third plane. scrolling playfield only needs 2 planes
     lea	bitplanes,a0              ; copperlist address
     lea scroll_data,a1
-	add.w	scroll_offset(pc),a1
+	add.w	d0,a1
 	move.l	a1,d2
     move.w #bplpt,d3        ; first register in d3
 
@@ -3532,21 +3637,7 @@ draw_scrolling_tiles
     move.w d2,(a0)+           ; 
     add.l #SCROLL_PLANE_SIZE,d2       ; next plane
     dbf d4,.mkcl
-	
-	; acknowledge draw tile message
-	clr.b	draw_tile_column_message
-
-.no_new_tiles	
 	rts
-	
-play_ambient_sound
-	moveq.w	#1,d0
-	cmp.w	#1,level_number
-	bne.b	.no_special_sound_loop
-	moveq.w	#2,d0
-.no_special_sound_loop
-	bra		play_music
-	
 	
 update_scrolling
 	; now we have to copy what we just created so when we
@@ -3794,7 +3885,7 @@ update_intro_screen
 
     bra.b   .cont
 .no_first 
-    cmp.l   #ORIGINAL_TICKS_PER_SEC*9,d0
+    cmp.l   #INTRO_TICKS_PER_SEC*6,d0
     bne.b   .no_second
 .second
     move.w   high_score_position(pc),d0
@@ -3809,7 +3900,7 @@ update_intro_screen
     st.b    intro_state_change
     bra.b   .cont
 .no_second
-    cmp.l   #ORIGINAL_TICKS_PER_SEC*12,d0
+    cmp.l   #INTRO_TICKS_PER_SEC*12,d0
     bne.b   .cont
 .third
     ; highscore highlight => first screen
@@ -3822,7 +3913,7 @@ update_intro_screen
     move.b  #3,intro_step
     clr.w   intro_frame_index
 
-    move.w  #ORIGINAL_TICKS_PER_SEC,.cct_countdown
+    move.w  #INTRO_TICKS_PER_SEC,.cct_countdown
     move.w  #CHARACTER_X_START,.cct_x
     move.w  #80-24,.cct_y
 
@@ -3833,7 +3924,7 @@ update_intro_screen
 .cont    
     move.l  state_timer(pc),d0
     add.l   #1,D0
-    cmp.l   #ORIGINAL_TICKS_PER_SEC*22,d0
+    cmp.l   #INTRO_TICKS_PER_SEC*22,d0
     bne.b   .no3end
 .reset_first
 	clr.l	state_timer
@@ -4141,9 +4232,16 @@ update_player
 	; demo ended with "blue" => sets 2-button control
 	clr.b	one_button_control_option
 .demo_end
+	bsr		set_game_over
+	st.b	fast_game_over_flag
+	
     clr.b   demo_mode
+	clr.b	game_started_flag
+	clr.l	state_timer
+	clr.b	play_start_music_message
     move.w  #STATE_GAME_START_SCREEN,current_state
     rts
+
 .no_demo_end
     clr.l   d0
     ; demo running
@@ -4204,7 +4302,7 @@ update_player
     tst.l   d0
     beq.b   .no_move        ; nothing is currently pressed: optimize
 .force_move
-	move.l	previous_joy_input(pc),d1
+	move.l	previous_joy1(pc),d1
     btst    #JPB_BTN_RED,d0
     beq.b   .no_fire
 	btst	#JPB_BTN_RED,d1
@@ -4264,7 +4362,6 @@ update_player
 .no_down
 .out
 .no_move
-	move.l	d0,previous_joy_input
 	cmp.w	#X_SHIP_MIN,d2
 	bcs.b	.x_invalid
 	cmp.w	#X_SHIP_MAX,d2
@@ -4323,6 +4420,10 @@ record_input:
     beq.b   .norf
     bset    #FIRE,d1
 .norf
+    btst    #JPB_BTN_BLU,d0
+    beq.b   .nobf
+    bset    #BOMB,d1
+.nobf
     move.l record_data_pointer(pc),a0
     cmp.l   #record_input_table+RECORD_INPUT_TABLE_SIZE-4,a0
     bcc.b   .no_input       ; overflow!!!
@@ -4744,7 +4845,7 @@ something_was_hit
 	beq.b	.play_now
 	; bomb: explode once and delay the other explosion
 	lea		rocket_explodes_sound,a0
-	move.w	#15,d0
+	move.w	#12,d0		; short delay
 	bsr		play_delayed_fx
 	bra.b	.object_shot
 .play_now
@@ -4885,7 +4986,7 @@ update_bombs:
 	bsr		something_was_hit
 	
 	lea		bomb_hits_ground_sound,a0
-	bsr		play_fx	
+	bsr		play_fx_if_player_alive	
 	
 
 	bra.b	.stop
@@ -5688,13 +5789,6 @@ get_tile_type:
     dc.b    -1
     even
     
-; macro requires A5 to point on custom
-WAIT_BLITTER:MACRO
-	TST.B	$BFE001
-.wait\@
-	BTST	#6,(dmaconr,a5)
-	BNE.S	.wait\@
-	ENDM
 	
 ; what: blits 16x16 data on one plane
 ; args:
@@ -6704,8 +6798,6 @@ prev_record_joystick_state
 
     ENDC
 
-previous_joy_input
-	dc.l	0
 current_state:
     dc.w    0
 score:
@@ -7075,6 +7167,8 @@ play_fx_if_player_alive
 
 ; < D0: track start number
 play_music:
+	tst.b	demo_mode
+	bne.b	.out
     movem.l d0-a6,-(a7)
     lea _custom,a6
     lea music,a0
@@ -7086,6 +7180,7 @@ play_music:
     bsr _mt_start
     st.b    music_playing
     movem.l (a7)+,d0-a6
+.out
     rts
 	
 ; < D0: if != 0 don't change sky color at all
@@ -7189,7 +7284,7 @@ floppy_file
 
 ; table with 2 bytes: 60hz clock, 1 byte: move mask for the demo
 demo_moves_1:
-
+	incbin	"moves.bin"
 demo_moves_1_end:
 demo_moves_2:
 
