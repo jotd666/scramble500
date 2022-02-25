@@ -64,10 +64,9 @@ ISSUES:
 - sometimes cannot bomb objects (objects not destroyed): make a test mode
   where bombing just tells when it worked or not but don't destroy target
   stop scrolling and test various bombing positions for the same object
-- lives not displayed on startup (with music)
-- lockup on CDTV !
-- sometimes shooting an object only shoots half of the object
-  (test if there's a shift and make it up)
+- lockup on CDTV despite the startup code: executable doesn't load on 68000 segment issue
+- center the screen
+- scrolling is flickering on slow cpus
 
 TODO
 

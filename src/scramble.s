@@ -88,7 +88,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -336,6 +336,7 @@ ADD_XY_TO_A1:MACRO
 Start:
 	; if D0 contains "WHDL"
 	; A0 contains resload
+	
     cmp.l   #'WHDL',D0
     bne.b   .standard
     move.l a0,_resload
@@ -392,6 +393,7 @@ Start:
     move.b  #0,controller_joypad_1
     
 
+
 ; no multitask
     tst.l   _resload
     bne.b   .no_forbid
@@ -416,7 +418,6 @@ Start:
 ;    jsr (_LVOWaitTOF,a6)
 
     move.w  #STATE_INTRO_SCREEN,current_state
-    
     
     IFND    RECORD_INPUT_TABLE_SIZE
     ; uncomment to test demo mode right now
@@ -543,7 +544,7 @@ intro:
 .no_credit
 	st.b	play_start_music_message
 	clr.b	display_player_one_message
-	move.w	#4*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,start_music_countdown
+	move.w	#3*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,start_music_countdown
 .wait_end_of_music
 	cmp.w	#STATE_PLAYING,current_state
 	bne.b	.wait_end_of_music
@@ -947,6 +948,7 @@ init_new_play:
 	clr.w	nb_missions_completed
 	
     move.b  #START_NB_LIVES,nb_lives
+
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
@@ -1469,16 +1471,26 @@ draw_all
 	clr.b	display_player_one_message
     bsr clear_screen
     bsr	clear_playfield_planes
+	
+	; set game palette
+	
+    lea objects_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette		
+
 	lea	player_one_string(pc),a0
 	move.w	#72,d0
 	move.w	#160-24,d1
-    move.w  #$FFF,d2
+    move.w  #WHITE_COLOR,d2
     bsr write_color_string
 	
 	; artifically display all 3 lives at start
-	addq.b	#1,nb_lives
+	; (player is not initialized yet)
+	
+	move.b	#START_NB_LIVES+1,nb_lives
 	bsr	draw_lives
-	subq.b	#1,nb_lives
+	clr.w	nb_missions_completed
+	bsr	draw_mission_flags
 	; real number of remaining lives (plus the one in play)
 .no_play
 	; controller option (amiga specific)
@@ -1489,7 +1501,7 @@ draw_all
 .select
 	move.w	#32,d0
 	move.w	#160,d1
-    move.w  #$FFF,d2
+    move.w  #WHITE_COLOR,d2
     bsr write_blanked_color_string
 
 .wait_for_start
@@ -4562,7 +4574,7 @@ update_shots:
 	bmi.b	.no_update
 	move.w	xpos(a4),d0
 	add.w	#SHOT_SPEED,d0
-	cmp.w	#X_MAX-8,d0
+	cmp.w	#X_MAX-24,d0
 	bcc.b	.stop
 	move.w	d0,xpos(a4)
 	; test if hitting something (scenery)
@@ -4704,7 +4716,13 @@ something_was_hit
 	move.w	#48,d0
 	bsr		add_to_fuel
 
-	
+	; explode if shot
+	tst		d6
+	bne.b	.no_shot
+	; same sound as bomb
+	lea		bomb_hits_ground_sound,a0
+	bsr		play_fx_if_player_alive	
+.no_shot	
 	bra.b	.object_shot
 .rocket_shot
 	; create an explosion for the object
@@ -4714,6 +4732,7 @@ something_was_hit
 
 	moveq.l	#5,d0		; ground rocket: 50 points
 	bsr		add_to_score
+
 	tst		d6
 	beq.b	.play_now
 	; bomb: explode once and delay the other explosion
