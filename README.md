@@ -67,6 +67,7 @@ ISSUES:
 - lockup on CDTV despite the startup code: executable doesn't load on 68000 segment issue
 - center the screen
 - scrolling is flickering on slow cpus
+- $100: something was hit  $104 tile type test
 
 TODO
 

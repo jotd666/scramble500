@@ -88,7 +88,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -98,6 +98,8 @@ DIRECT_GAME_START
 ;START_SCORE = 525670/10
 ;START_LEVEL = 6
 ;START_FUEL = 40
+; no destructions, can bomb object forever if set
+;BOMB_TEST_MODE
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -4584,7 +4586,9 @@ update_shots:
 	bsr		get_tile_type
 	tst.b	(a0)
 	beq.b	.try_enemies
-	clr.w	d0
+	clr.w	d2
+	move.w	xpos(a4),d0
+	move.w	ypos(a4),d1
 	bsr.b	something_was_hit
 	; shot disables on scenery or targets
 	bra.b	.stop
@@ -4608,15 +4612,16 @@ update_shots:
 	st.b	active(a4)	; last clear, no draw
 	bra.b	.no_update
 
-		
+
+; < D0-D1: coordinates of projectile object
 ; < A0: pointer on screen tile map
 ; (obviously contains non-zero tile)
 ; < A1: pointer on tile type to tile flags conversion table
-; < D0: 0 if shot, 1 if bomb
+; < D2: 0 if shot, 1 if bomb
 ; trashes: a lot
 
 something_was_hit
-	move	d0,d6
+	move	d2,d6
 	move.b	(a0),d2
 	cmp.b	#FILLER_TILE,d2
 	beq.b	.scenery_shot	; sometimes bomb go through the surface
@@ -4624,6 +4629,9 @@ something_was_hit
 	move.b	(a1,d2.w),d2
 	cmp.b	#STANDARD_TILE,d2
 	beq.b	.scenery_shot
+	; now compute the x,y tile coords from a0
+	move.w	d0,d3
+	move.w	d1,d4
 	; this is an alien ground object we shot/bombed
 	move.b	d2,d1
 	; remove object from logical map
@@ -4632,9 +4640,6 @@ something_was_hit
 	; of the object (also allows to center explosion and remove object
 	; from screen
 
-	; now compute the x,y tile coords from a0
-	move.w	xpos(a4),d3
-	move.w	ypos(a4),d4
 	sub.w	scroll_shift(pc),d3		; take scroll shift into account
 	addq.w	#8,d3		; compensate...
 	; align on tile
@@ -4653,7 +4658,9 @@ something_was_hit
 .top_corner
 	move.w	d3,d0
 	move.w	d4,d1
+	IFND	BOMB_TEST_MODE
 	bsr		remove_object
+	ENDC
 	; don't trash A0 as it may be used (mystery ship)
 	; re-add scroll shift to center the explosion on the object
 	; (because explosion is not on the scrolling playfield)
@@ -4861,6 +4868,7 @@ update_bombs:
 	move.w	d1,ypos(a4)
 	move.w	d0,d3
 	move.w	d1,d4
+	addq.w	#8,d0		; compensate (again!!)
 	; test if hitting something (scenery)
 	bsr		get_tile_type
 	tst.b	(a0)
@@ -4870,7 +4878,10 @@ update_bombs:
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
 	bsr		create_explosion
-	moveq	#1,d0
+	move.w	xpos(a4),d0
+	addq.w	#8,d0		; compensate (again!!)
+	move.w	ypos(a4),d1
+	moveq	#1,d2
 	bsr		something_was_hit
 	
 	lea		bomb_hits_ground_sound,a0
@@ -7153,6 +7164,8 @@ player:
     ds.b    Player_SIZEOF
     even
 
+keyboard_table:
+    ds.b    $100,0
 bombs:
 	ds.b	GfxObject_SIZEOF*MAX_NB_BOMBS
 shots:
@@ -7166,8 +7179,6 @@ airborne_enemies:
 
 
     
-keyboard_table:
-    ds.b    $100,0
     
 floppy_file
     dc.b    "floppy",0
