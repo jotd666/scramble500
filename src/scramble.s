@@ -7143,6 +7143,7 @@ SOUND_ENTRY:MACRO
 	include	"blocks.s"
 
 NB_PLAYFIELD_PALETTES = (end_playfield_palettes-playfield_palettes)/8
+	even
 
 playfield_palettes
 	include	"playfield_palettes.s"
@@ -7158,11 +7159,12 @@ menu_palette
 objects_palette
 	include	"objects_palette.s"
 	
+
 	include	"tilemap.s"
     
+	even
 player:
     ds.b    Player_SIZEOF
-    even
 
 keyboard_table:
     ds.b    $100,0
@@ -7202,6 +7204,10 @@ HWSPR_TAB_XPOS:
 HWSPR_TAB_YPOS:
 	ds.l	512
     
+
+screen_ground_rocket_table
+	ds.w	NB_BYTES_PER_PLAYFIELD_LINE
+	
     IFD   RECORD_INPUT_TABLE_SIZE
 record_input_table:
     ds.b    RECORD_INPUT_TABLE_SIZE
@@ -7212,8 +7218,6 @@ record_input_table:
 screen_tile_table
 	ds.b	NB_LINES*NB_BYTES_PER_PLAYFIELD_LINE
     
-screen_ground_rocket_table
-	ds.w	NB_BYTES_PER_PLAYFIELD_LINE
 
     SECTION  S4,CODE
     include ptplayer.s
@@ -7467,10 +7471,7 @@ music
 	incbin	"scramble_intro.mod"
 	
     SECTION S_4,BSS,CHIP
-    ; erase method erases one line above
-    ; and character can be drawn at y=0 so add some memory
-    ; to avoid corrupting memory
-    ds.b    NB_BYTES_PER_LINE*NB_PLANES
+
 screen_data:
     ds.b    SCREEN_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_LINE,0
 scroll_data

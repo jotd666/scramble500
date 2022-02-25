@@ -61,13 +61,9 @@ ISSUES:
 
 - level 4/5 filler is reverted (brick then square) in the bottom section
   or is it the odd/even tile pattern?
-- sometimes cannot bomb objects (objects not destroyed): make a test mode
-  where bombing just tells when it worked or not but don't destroy target
-  stop scrolling and test various bombing positions for the same object
-- lockup on CDTV despite the startup code: executable doesn't load on 68000 segment issue
 - center the screen
 - scrolling is flickering on slow cpus
-- $100: something was hit  $104 tile type test
+- use blitter to copy tiles
 
 TODO
 
