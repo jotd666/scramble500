@@ -17,14 +17,14 @@ FEATURES:
 - faithful enemy behaviour & speed & increasing difficulty
 - 50 frames per second (PAL) even on a 68000 A500
 - all levels
-- joystick controlled (port 1) or keyboard controls (arrows + space)
+- joystick controlled (port 1) or keyboard controls (arrows + ctrl + alt)
 - can run directly from shell or from whdload (fast machines/complex configurations)
 
 CONTROLS:
 
 - joystick directions/arrows: move player
 - control/left alt/fire button/second button: start game
-- P/second button: pause
+- P/third button (3 joystick button)/play button (cd32): pause
 - F10 (or quitkey): quit (and save scores)
 - two button joystick/joypad: fire to shoot, second button to bomb
 - one button joystick: fire to shoot and bomb
@@ -62,10 +62,12 @@ CREDITS:
 
 MINOR ISSUES:
 
-- level 4/5 filler bricks are wrong (brick then square) in the bottom section
-  or is it the odd/even tile pattern?
+- level 4/5 filler bricks are inverted (brick then square) in the bottom section
+  or is it the odd/even tile pattern? well, not a big issue
 - center the screen
-
+- test 512k
+- fast gameover screens should not draw
+- specific palette mix for end screen: almost ok FUEL is blue...
 
 BUILDING FROM SOURCES:
 

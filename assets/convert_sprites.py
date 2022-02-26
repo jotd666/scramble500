@@ -47,10 +47,10 @@ def extract_block(img,x,y):
 
 # the menu palette
 
-main_palette = [(0,0,0),
+menu_palette = [(0,0,0),
                 (240,64,0),     # dark orange
                 (240,240,0),    # yellow
-                (1,208,208),    # cyan
+                (0,208,208),    # cyan
                 (240,240,240),  # white
                 (240,0,0),  # red
                 (0,240,0),  # green
@@ -58,7 +58,7 @@ main_palette = [(0,0,0),
                 ]
 
 # pad (not needed, all 8 colors are used)
-main_palette += [(0,0,0)] * (8-len(main_palette))
+menu_palette += [(0,0,0)] * (8-len(menu_palette))
 
 tiles_palette = [(0,0,0),(240,0,0),(0,0,240),(240,240,0)]
 tiles_palette_level_5 = [(0,0,0),(32,208,0),(240,0,240),(240,240,0)]
@@ -67,7 +67,7 @@ BOSS = 86
 MYSTERY = 17
 
 
-bitplanelib.palette_dump(main_palette,os.path.join(source_dir,"menu_palette.s"),as_copperlist=False)
+bitplanelib.palette_dump(menu_palette,os.path.join(source_dir,"menu_palette.s"),as_copperlist=False)
 
 
 def process_maps():
@@ -451,7 +451,27 @@ process_maps()
 process_tiles("tiles_gray.json")
 # 8 colors of ship & objects playfield
 game_palette = process_tiles("tiles_color.json")
+
+end_screen_palette = menu_palette.copy()
+
+# change some colors for the end screen
+end_screen_palette[2] = (240,0,0)
+end_screen_palette[5] = (0,192,208)
+end_screen_palette[6] = (192,192,208)
+end_screen_palette[4] = (240,240,0)
+
+##end_screen_palette = [(0,0,0),
+##                (240,64,0),     # dark orange
+##                (240,0,0),    # red (objects)
+##                (240,240,0),    # yellow
+##                (240,240,240),  # white
+##                (0,192,208),  #  0cd (objects)
+##                (192,192,208),  # ccd (objects)
+##                (128,0,208), # purple
+##                ]
+
 bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
+bitplanelib.palette_dump(end_screen_palette,os.path.join(source_dir,"end_screen_palette.s"),as_copperlist=False)
 
 
 process_fonts(dump_fonts)

@@ -88,7 +88,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -408,8 +408,9 @@ Start:
 	; if zero, no joypad detected => one button control
 	; by default
 	seq	one_button_control_option
-	; no extra joypad buttons
-    move.b  #0,controller_joypad_1
+	; don't shut off extra joypad buttons, reading the joypad costs cycles
+	; but AFTER vblank interrupt so we can afford it.
+    ;;move.b  #0,controller_joypad_1
     
 
 
@@ -480,7 +481,7 @@ Start:
 
 intro:
     lea _custom,a5
-    clr.w bplcon1(a5)                     ; reset scrolling shift to 0
+    clr.w bplcon1_value                   ; reset scrolling shift to 0 in copperlist
     clr.w bpl2mod(a5)                ; modulo of 2nd playfield 0 
 	; (to be able to draw ships with a "classic" blit routine in the "SCORE" screen)
 	clr.w	d0
@@ -628,6 +629,7 @@ intro:
     bsr draw_lives
 	bsr	clear_mission_flags
 	bsr	draw_mission_flags
+	move.w	#$EE0,d0
     bsr draw_fuel_with_text
 	IFND	SCROLL_DEBUG
 	bsr	draw_level_map
@@ -2574,12 +2576,12 @@ draw_current_level
 FUEL_OFFSET = Y_MAX*NB_BYTES_PER_LINE+8
     
 ; draw fuel text & full amount
-
-draw_fuel_with_text:
+; < d0: color of yellow
+draw_fuel_with_text
+	move.w	d0,d2
 	lea	fuel_text(pc),a0
 	move.w	#24,d0
 	move.w	#Y_MAX,d1
-	move.w	#$EE0,d2
 	bsr		write_color_string
 draw_fuel:
 	moveq.w	#15,d6
@@ -2950,15 +2952,15 @@ level2_interrupt:
     cmp.w   #STATE_PLAYING,current_state
     bne.b   .no_playing
     tst.b   demo_mode
-    bne.b   .no_pause
+    bne.b   .no_kb_pause
     cmp.b   #$19,d0
-    bne.b   .no_pause
+    bne.b   .no_kb_pause
 	; in that game we need pause even if music
 	; is playing, obviously
 ;    tst.b   music_playing
 ;    bne.b   .no_pause
     bsr	toggle_pause
-.no_pause
+.no_kb_pause
     tst.w   cheat_keys
     beq.b   .no_playing
         
@@ -3041,11 +3043,15 @@ level2_interrupt:
 	rte
 	
 toggle_pause
-	eor.b   #1,pause_flag
-	beq.b	.out
-	bsr		stop_sounds
-.out
+	movem.l	d0/a6,-(a7)
+	bsr.b		.x
+	movem.l	(a7)+,d0/a6
 	rts
+	
+.x
+	eor.b   #1,pause_flag
+	bne.b	stop_sounds
+	bra		play_ambient_sound
 	
     
 ; < D0: numbers of vertical positions to wait
@@ -3113,20 +3119,20 @@ level3_interrupt:
     moveq.l #1,d0
     bsr _read_joystick
     
-    btst    #JPB_BTN_BLU,d0
-    beq.b   .no_second
     move.l  joystick_state(pc),d2
-    btst    #JPB_BTN_BLU,d2
-    bne.b   .no_second
+    btst    #JPB_BTN_PLAY,d0
+    beq.b   .no_play
+    btst    #JPB_BTN_PLAY,d2
+    bne.b   .no_play
 
     ; no pause if not in game
     cmp.w   #STATE_PLAYING,current_state
-    bne.b   .no_second
+    bne.b   .no_play
     tst.b   demo_mode
-    bne.b   .no_second
-    
+    bne.b   .no_play
+
     bsr		toggle_pause
-.no_second
+.no_play
     lea keyboard_table(pc),a0
     tst.b   ($63,a0)    ; ctrl key
     beq.b   .no_fire
@@ -3160,7 +3166,7 @@ level3_interrupt:
     bset    #JPB_BTN_RIGHT,d0
 .no_right    
 	; store previous joystick AND keyboard state
-	move.l	joystick_state(pc),previous_joy1
+	move.l	d2,previous_joy1
     move.l  d0,joystick_state
     move.w  #$0020,(intreq,a5)
     movem.l (a7)+,d0-a6
@@ -3382,14 +3388,16 @@ start_music_countdown
 draw_mission_completed
     bsr clear_screen
     bsr	clear_playfield_planes
-	; set menu palette so the text has the proper colors
-    lea menu_palette,a0
+	; set mixed palette so the text has the proper colors
+	; but so have lives/missions
+    lea end_screen_palette,a0
 	move.w	#8,d0		; 8 colors
 	bsr		load_palette	
 
-	; colors are wrong but it doesn"t matter much
+	; some colors are wrong but it doesn"t matter much
 	; for it to be correct we'd have to change it dynamically
 	; but that ain't worth it
+	move.w	#$FF0,d0
 	bsr	draw_fuel_with_text
 	bsr	draw_lives
 	bsr	draw_mission_flags
@@ -3556,6 +3564,13 @@ copy_tiles_cpu
 ; each time we scroll by 8 pixels
 
 draw_scrolling_tiles
+	; update screen pointer for playfield 2
+	move.w	scroll_offset(pc),d0
+	bsr		set_playfield_planes
+	move.w	scroll_shift(pc),d0
+	lsl.w	#4,d0
+	move.w	d0,bplcon1_value
+
 	tst.b	draw_tile_column_message
 	beq.b	.no_new_tiles
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
@@ -3592,12 +3607,6 @@ draw_scrolling_tiles
 	; acknowledge draw tile message
 	clr.b	draw_tile_column_message
 	
-	; update screen pointer for playfield 2
-	move.w	scroll_offset(pc),d0
-	bsr		set_playfield_planes
-	move.w	scroll_shift(pc),d0
-	lsl.w	#4,d0
-	move.w	d0,bplcon1+_custom
 	
 	
 
@@ -6107,8 +6116,6 @@ blit_16x16_scroll_object
     lea $DFF000,A5
 	move.l	a1,d1
 	moveq.l #-1,d3	;masking of first/last word : no mask   
-    moveq.w  #4,d2       ; 16 pixels + 2 shift bytes
-    move.w  #16,d4      ; 16 pixels height   
 	lea	(BOB_16X16_PLANE_SIZE*2,a0),a4	; mask
 
     move.l  #$0fca0000,d5    ;B+C-A->D cookie cut   
@@ -6120,12 +6127,9 @@ blit_16x16_scroll_object
 	or.l	#$80008000,d5
 .no_shift
 
-	move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE,d0
-    sub.w   d2,d0       ; blit width
+	move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-4,d0
 
-    lsl.w   #6,d4
-    lsr.w   #1,d2
-    add.w   d2,d4       ; blit height
+    move.w   #16<<6+2,d4       ; blit height
 
 	; now we have 4 blits to perform
 	; 1 blit to a1 (and a1+SCROLL_PLANE_SIZE)
@@ -7254,6 +7258,9 @@ menu_palette
 objects_palette
 	include	"objects_palette.s"
 	
+end_screen_palette
+	include	"end_screen_palette.s"
+	
 
 	include	"tilemap.s"
     
@@ -7347,7 +7354,9 @@ end_color_copper:
    dc.w  diwstrt,$3091            ;  DIWSTRT
    dc.w  diwstop,$2861            ;  DIWSTOP
    ; we don't need to set it here
-   ;dc.w  bplcon1,$0000            ;  BPLCON1 := 0x0000
+   dc.w  bplcon1
+bplcon1_value:
+   dc.w		$0000            ;  BPLCON1 := 0x0000
    ; proper sprite priority: below bitplanes for the stars effect
    dc.w  bplcon2,$0000            ;  BPLCON2
    dc.w  ddfstrt,$0038            ;  DDFSTRT := 0x0038
