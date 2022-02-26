@@ -55,6 +55,7 @@ CREDITS:
 - Andrzej Dobrowolski (aka no9): music & sfx loops (plus sfx advice)
 - Scott Tunstall: brilliant reverse engineering work of the arcade version 
 - Frank Wille (aka phx): sfx/module player
+- ross: help with screen centering
 - meynaf: random routine
 - eab forum: useful advice & support
 - 125scratch: sprite rips https://www.spriters-resource.com/arcade/scramble
@@ -64,10 +65,7 @@ MINOR ISSUES:
 
 - level 4/5 filler bricks are inverted (brick then square) in the bottom section
   or is it the odd/even tile pattern? well, not a big issue
-- center the screen
-- test 512k
-- fast gameover screens should not draw
-- specific palette mix for end screen: almost ok FUEL is blue...
+- try to change some sound samples so game runs with 512k memory
 
 BUILDING FROM SOURCES:
 

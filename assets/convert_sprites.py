@@ -455,10 +455,12 @@ game_palette = process_tiles("tiles_color.json")
 end_screen_palette = menu_palette.copy()
 
 # change some colors for the end screen
+# don't change some colors we need for the text
+# don't change color 4 which is dynamic in the game
 end_screen_palette[2] = (240,0,0)
 end_screen_palette[5] = (0,192,208)
 end_screen_palette[6] = (192,192,208)
-end_screen_palette[4] = (240,240,0)
+end_screen_palette[7] = (240,240,0)
 
 ##end_screen_palette = [(0,0,0),
 ##                (240,64,0),     # dark orange

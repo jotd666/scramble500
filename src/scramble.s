@@ -88,7 +88,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -449,13 +449,14 @@ Start:
 
     bsr init_sound
     
-    ; shut off dma
     lea _custom,a5
     move.w  #$7FFF,(intena,a5)
     move.w  #$7FFF,(intreq,a5)
-    move.w #$03E0,dmacon(A5)
 
     bsr init_interrupts
+	
+    ; shut off dma
+    move.w #$03E0,dmacon(A5)
     ; intro screen
     
     bsr	init_bitplanes_copperlist
@@ -477,12 +478,12 @@ Start:
 	; dual playfield
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
     ;;clr.w bplcon2(a5)                     ; no priority (sprites behind)
-    move.w #0,bpl1mod(a5)                ; modulo de tous les plans = 40
+    move.w #$C,bpl1mod(a5)                ; one of ross' magic value so the screen is centered
 
 intro:
     lea _custom,a5
     clr.w bplcon1_value                   ; reset scrolling shift to 0 in copperlist
-    clr.w bpl2mod(a5)                ; modulo of 2nd playfield 0 
+    move.w #$C,bpl2mod(a5)                ; modulo of 2nd playfield, one of ross' magic value 
 	; (to be able to draw ships with a "classic" blit routine in the "SCORE" screen)
 	clr.w	d0
 	bsr		set_playfield_planes	; no scroll offset
@@ -622,7 +623,9 @@ intro:
     bsr wait_bof
 
 	; set playfield modulo in scroll mode (wider)
-    move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE,bpl2mod(a5)
+	; following ross value changes to get the screen centered, I empirically
+	; added $C to make display correct (that's magic, I don't know what I'm doing)
+    move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE+$C,bpl2mod(a5)
 	bsr	init_bitplanes_copperlist
     
 	bsr	draw_ground	
@@ -1126,7 +1129,7 @@ show_stars
 	and.w	#$FF,d0
 	cmp.w	#X_MAX-X_SHIP_MIN,d0
 	bcc.b	.rx
-	add.w	#X_SHIP_MIN,d0
+	add.w	#X_SHIP_MIN+6*8,d0	; add 48 offset because of screen centering
 	move.w	#100,d1	; doesn't matter
 	bsr		store_sprite_pos
 	; store color
@@ -1158,8 +1161,11 @@ update_stars
 	tst.w	stars_state_change_timer
 	bmi.b	.update
 	bne.b	.decrease
+	; set stars state
 	clr.w	stars_timer
 	move.b	stars_next_state(pc),stars_on
+	; change ambient sound loop at this moment too
+	bsr		play_ambient_sound
 .decrease
 	subq.w	#1,stars_state_change_timer
 .update
@@ -1553,6 +1559,9 @@ PLAYER_ONE_Y = 102-14
 
     
 .game_over
+	tst.b	fast_game_over_flag
+    bne.b   .draw_complete		; don't draw anything (ESC pressed, demo ended)
+
     cmp.l   #GAME_OVER_TIMER,state_timer
     bne.b   .draw_complete
     bsr clear_playfield_planes
@@ -3258,7 +3267,6 @@ update_all
 .cont
 	tst.b	fast_game_over_flag
 	beq.b	.normal
-	clr.b	fast_game_over_flag
 	clr.l	state_timer
 	rts
 .normal
@@ -3600,7 +3608,7 @@ draw_scrolling_tiles
 	addq.w	#1,level_number
 	st.b	next_level_flag
 	bsr		update_level_data
-	bsr		play_ambient_sound
+
 .no_end
 	move.l	a6,map_pointer
 	
@@ -7351,17 +7359,19 @@ colors:
 dyn_color_reset:
 	dc.w	$1c0     ; green or gray
 end_color_copper:
-   dc.w  diwstrt,$3091            ;  DIWSTRT
-   dc.w  diwstop,$2861            ;  DIWSTOP
+	; one of ross' magic value so the screen is centered
+   dc.w  diwstrt,$30c1
+   dc.w  diwstop,$2891
    ; we don't need to set it here
    dc.w  bplcon1
 bplcon1_value:
    dc.w		$0000            ;  BPLCON1 := 0x0000
    ; proper sprite priority: below bitplanes for the stars effect
    dc.w  bplcon2,$0000            ;  BPLCON2
-   dc.w  ddfstrt,$0038            ;  DDFSTRT := 0x0038
-   dc.w  ddfstop,$00d0            ;  DDFSTOP := 0x00d0
-      
+   ; one of ross' magic value so the screen is centered
+   dc.w  ddfstrt,$0050            ;  DDFSTRT := 0x0038
+   dc.w  ddfstop,$00B8            ;  DDFSTOP := 0x00d0
+
 sprites:
 
 ;scroll_mask_sprite
@@ -7577,8 +7587,10 @@ music
     SECTION S_4,BSS,CHIP
 
 screen_data:
-    ds.b    SCREEN_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_LINE,0
+    ds.b    SCREEN_PLANE_SIZE*NB_PLANES,0
+	; scroll data has only 2 planes (4 colors)
+	; except when used to display the enemies, lets leave it to 3 planes
 scroll_data
-	ds.b	SCROLL_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_SCROLL_SCREEN_LINE,0
+	ds.b	SCROLL_PLANE_SIZE*NB_PLANES,0
     
     	
