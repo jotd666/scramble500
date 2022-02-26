@@ -64,12 +64,8 @@ MINOR ISSUES:
 
 - level 4/5 filler bricks are wrong (brick then square) in the bottom section
   or is it the odd/even tile pattern?
-
-TODO
-
-- demo mode (locked if demo goes through)
-- demo mode (trashed if demo is stopped by start instead of: TO TEST)
 - center the screen
+
 
 BUILDING FROM SOURCES:
 

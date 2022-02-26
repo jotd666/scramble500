@@ -3556,9 +3556,6 @@ copy_tiles_cpu
 ; each time we scroll by 8 pixels
 
 draw_scrolling_tiles
-	move.w	scroll_shift(pc),d0
-	lsl.w	#4,d0
-	move.w	d0,bplcon1+_custom
 	tst.b	draw_tile_column_message
 	beq.b	.no_new_tiles
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
@@ -3592,14 +3589,17 @@ draw_scrolling_tiles
 .no_end
 	move.l	a6,map_pointer
 	
+	; acknowledge draw tile message
+	clr.b	draw_tile_column_message
 	
 	; update screen pointer for playfield 2
 	move.w	scroll_offset(pc),d0
 	bsr		set_playfield_planes
+	move.w	scroll_shift(pc),d0
+	lsl.w	#4,d0
+	move.w	d0,bplcon1+_custom
 	
 	
-	; acknowledge draw tile message
-	clr.b	draw_tile_column_message
 
 .no_new_tiles	
 	rts
