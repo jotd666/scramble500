@@ -69,6 +69,8 @@ MINOR ISSUES:
 - ambient sound lower volume?
 - 2 player mode?
 - add 16 pixels wide for screen display & perfect screen layout
+- smaller hitboxes for ufos
+- flashing 1UP/2UP
 
 BUILDING FROM SOURCES:
 

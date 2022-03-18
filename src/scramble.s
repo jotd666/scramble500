@@ -54,6 +54,13 @@ INTERRUPTS_ON_MASK = $E038
 
 	STRUCTURE	Player,0
 	STRUCT      BaseCharacter1,Character_SIZEOF
+	ULONG	score
+	ULONG	previous_score
+	ULONG	displayed_score
+	UWORD	level_number
+	UWORD	nb_missions_completed
+	UBYTE	nb_lives
+	UBYTE	one_button_control_option
     LABEL   Player_SIZEOF
     
 	STRUCTURE	GfxObject,0
@@ -63,6 +70,7 @@ INTERRUPTS_ON_MASK = $E038
 	ULONG	custom_field_3
     LABEL   GfxObject_SIZEOF
     
+	
 ; aliases for different kind of objects
 nb_explosion_cycles = custom_field_1    
 explosion_type = custom_field_2
@@ -88,7 +96,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -409,7 +417,12 @@ Start:
 	tst.b	controller_joypad_1
 	; if zero, no joypad detected => one button control
 	; by default
-	seq	one_button_control_option
+	seq	player_1+one_button_control_option
+	tst.b	controller_joypad_1
+	; if zero, no joypad detected => one button control
+	; by default
+	tst.b	controller_joypad_0
+	seq	player_2+one_button_control_option
 	; don't shut off extra joypad buttons, reading the joypad costs cycles
 	; but AFTER vblank interrupt so we can afford it.
     ;;move.b  #0,controller_joypad_1
@@ -587,6 +600,8 @@ intro:
 .restart    
     lea _custom,a5
     move.w  #$1FFF,(intena,a5)
+
+	move.l	#player_1,current_player
     
     bsr init_new_play
 
@@ -605,12 +620,13 @@ intro:
 
     bsr wait_bof
     
+	move.l	current_player(pc),a4
     bsr draw_score
 
     ; for debug
     ;;bsr draw_bounds
     
-    move.w  level_number(pc),d0
+    move.w  level_number(a4),d0
 
     ; enable copper interrupts, mainly
     moveq.l #0,d0
@@ -662,12 +678,13 @@ intro:
 	tst.b	do_restart_game_message
 	beq.b	.mainloop
 	clr.b	do_restart_game_message
+	move.l	current_player(pc),a4
 	; award extra life
-	addq.b	#1,nb_lives
+	addq.b	#1,nb_lives(a4)
 	; one more mission under the belt
-	addq.w	#1,nb_missions_completed
+	addq.w	#1,nb_missions_completed(a4)
 	; restart at level 1
-	clr.w	level_number
+	clr.w	level_number(a4)
 	bsr	update_level_set_data
 	bsr	play_ambient_sound
 
@@ -687,15 +704,16 @@ intro:
 	st.b	fast_game_over_flag
     bra.b   .game_over
 .no_demo
+	move.l	current_player(pc),a4
    
     tst.b   infinite_lives_cheat_flag
     bne.b   .new_life
-    subq.b   #1,nb_lives
+    subq.b   #1,nb_lives(a4)
     bne.b   .new_life
 
     ; game over: check if score is high enough 
     ; to be inserted in high score table
-    move.l  score(pc),d0
+    move.l  score(a4),d0
     lea     hiscore_table(pc),a0
 	move.l	a0,$110
     moveq.w  #NB_HIGH_SCORES-1,d1
@@ -915,9 +933,10 @@ clear_scroll_plane
     movem.l (a7)+,d0/a1
     rts
 
-update_level_set_data
+update_level_set_data	
+	move.l	current_player(pc),a4
 	move.w	#10,d1
-	move.w	nb_missions_completed(pc),d0
+	move.w	nb_missions_completed(a4),d0
 	beq.b	.store
 	subq.w	#2,d1
 	cmp.w	#1,d0
@@ -927,10 +946,11 @@ update_level_set_data
 	move.b	d1,fuel_depletion_timer
 	; continue for level itself (first level)
 update_level_data:
+	move.l	current_player(pc),a4
 	clr.l	base_dest_address
 	clr.w	base_frame_subcounter
 	clr.w	base_frame_counter
-	move.w	level_number(pc),d0
+	move.w	level_number(a4),d0
 	beq.b	.rockets_fly
 	cmp.w	#3,d0
 .rockets_fly
@@ -980,16 +1000,15 @@ update_level_data:
 	dc.w	0,0	; no enemies
 	dc.w	0,0	; no enemies
 init_new_play:
-
-	clr.w	nb_missions_completed
-	
-    move.b  #START_NB_LIVES,nb_lives
+	move.l	current_player(pc),a4
+	clr.w	nb_missions_completed(a4)
+    move.b  #START_NB_LIVES,nb_lives(a4)
 
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
     move.l  #EXTRA_LIFE_SCORE,score_to_track
-    move.w  #START_LEVEL-1,level_number
+    move.w  #START_LEVEL-1,level_number(a4)
 	IFD		DIRECT_GAME_START
 	bsr		play_ambient_sound
 	ENDC
@@ -1001,7 +1020,7 @@ init_new_play:
 	tst.b	demo_mode
 	beq.b	.no_demo
 	; toggle demo
-	move.w	#START_LEVEL-1,level_number
+	move.w	#START_LEVEL-1,level_number(a4)
 	btst	#0,d0
 	lea		demo_moves_1,a0
 	lea		demo_moves_1_end,a1
@@ -1011,9 +1030,9 @@ init_new_play:
 
 	
 .no_demo
-    move.l  #START_SCORE,score
-    clr.l   previous_score
-    clr.l   displayed_score
+    move.l  #START_SCORE,score(a4)
+    clr.l   previous_score(a4)
+    clr.l   displayed_score(a4)
     rts
     
 init_level: 
@@ -1040,7 +1059,7 @@ clear_scores
     
 ; draw score with titles and extra 0
 draw_score:
- 
+	move.l	current_player(pc),a4
 	IFND	ARCADE_SCREEN_LAYOUT
 	; legacy compact score display at the bottom
     lea p1_string(pc),a0
@@ -1063,11 +1082,11 @@ draw_score:
     move.w  #128+24,d0
     bsr write_color_string
 
-    move.l  score(pc),d2
+    move.l  score(a4),d2
     bsr     draw_current_score
 
 
-    move.l  high_score(pc),d2
+    move.l  high_score(a4),d2
     bsr     draw_high_score
     
 	rts
@@ -1110,15 +1129,16 @@ draw_high_score
     move.w  #80,d0
     bsr write_color_string
 
-    move.l  score(pc),d2
     bsr     draw_current_score
 
     move.l  high_score(pc),d2
     bra     draw_high_score    
 
-; < D2 score
 ; trashes D0-D3
 draw_current_score:
+	move.l	current_player(pc),a4
+    move.l  score(a4),d2
+
     move.w  #0,d0
     move.w  #-16,d1
     move.w  #6,d3
@@ -1290,8 +1310,8 @@ init_player:
     tst.b   new_life_restart
     bne.b   .no_clear
 .no_clear
-	
-    move.w	level_number(pc),d0
+	move.l	current_player(pc),a0
+    move.w	level_number(a0),d0
 	add.w	d0,d0
 	add.w	d0,d0
 	lea		level_tiles(pc),a0
@@ -1306,7 +1326,7 @@ init_player:
 	clr.w	d0
 	bsr		next_playfield_palette
 
-    lea player,a0
+    move.l	current_player(pc),a0
 
     clr.l   previous_address(a0)   ; no previous position
 	clr.w	extra_y_counter(a0)
@@ -1360,7 +1380,7 @@ DEBUG_Y = 140
 
         
 draw_debug
-    lea player,a2
+    move.l current_player(pc),a2
     move.w  #DEBUG_X,d0
     move.w  #DEBUG_Y,d1
     lea	screen_data+SCREEN_PLANE_SIZE,a1 
@@ -1578,15 +1598,15 @@ draw_all
 	; artifically display all 3 lives at start
 	; (player is not initialized yet)
 	
-	move.b	#START_NB_LIVES+1,nb_lives
+	move.b	#START_NB_LIVES+1,nb_lives(a4)
 	bsr	draw_lives
-	clr.w	nb_missions_completed
+	clr.w	nb_missions_completed(a4)
 	bsr	draw_mission_flags
 	; real number of remaining lives (plus the one in play)
 .no_play
 	; controller option (amiga specific)
 	lea	one_button_control_text(pc),a0
-	tst.b	one_button_control_option
+	tst.b	one_button_control_option(a4)
 	bne.b	.select
 	lea	two_button_control_text(pc),a0	
 .select
@@ -1646,7 +1666,8 @@ PLAYER_ONE_Y = 102-14
 	tst.b	next_level_flag
 	beq.b	.same_level
 	; level change, remove remaining flying enemies
-	move.w	level_number(pc),d0
+	move.l	current_player(pc),a4
+	move.w	level_number(a4),d0
 	bne.b	.no_first
 	moveq.w	#6,d0
 .no_first
@@ -1660,7 +1681,8 @@ PLAYER_ONE_Y = 102-14
 	bsr	erase_bombs
 	
 	; erase stuff depending on the level
-	move.w	level_number(pc),d0
+	move.l	current_player(pc),a4
+	move.w	level_number(a4),d0
 
 	bsr	erase_enemies
 	bsr	erase_explosions
@@ -1668,8 +1690,9 @@ PLAYER_ONE_Y = 102-14
 	bsr	draw_bombs
 	bsr	draw_shots
 	bsr	draw_explosions
-
-	move.w	level_number(pc),d0
+	
+	move.l	current_player(pc),a4
+	move.w	level_number(a4),d0
 	add.w	d0,d0
 	add.w	d0,d0
 	lea		draw_table(pc),a0
@@ -1698,26 +1721,25 @@ PLAYER_ONE_Y = 102-14
     bsr     draw_last_life
 .no_extra_life
 
-
+	move.l	current_player(pc),a4
     ; score
     lea	screen_data+SCREEN_PLANE_SIZE*3,a1  ; white
     
-    move.l  score(pc),d0
-    move.l  displayed_score(pc),d1
+    move.l  score(a4),d0
+    move.l  displayed_score(a4),d1
     cmp.l   d0,d1
     beq.b   .no_score_update
     
-    move.l  d0,displayed_score
-
-    move.l  d0,d2
+    move.l  d0,displayed_score(a4)
+	
     bsr draw_current_score
     
     ; handle highscore in draw routine eek
     move.l  high_score(pc),d4
-    cmp.l   d2,d4
+    cmp.l   score(a4),d4
     bcc.b   .no_score_update
     
-    move.l  d2,high_score
+    move.l  score(a4),high_score
     bsr draw_high_score
 .no_score_update
 .draw_complete
@@ -1766,14 +1788,15 @@ draw_tiles:
 	lea		tiles,a0
 	clr.w	(a4)	; zero coord: no rocket in the column by default	
 	move.w	d0,d5	; save X-offset for later on
+	IFD		ARCADE_SCREEN_LAYOUT
+	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*40,a1	; 2nd playfield
+	ELSE
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a1	; 2nd playfield
+	ENDC
 	add.w	d5,a1		; add x offset
 
-	IFD		ARCADE_SCREEN_LAYOUT
-	move.w	#-8,d6	; current y
-	ELSE
 	move.w	#16,d6	; current y	
-	ENDC
+
 	
 	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,d4	; we'll need this value
 	move.w	(a6)+,d2	; number of vertical tiles to draw - upper part
@@ -1864,7 +1887,10 @@ draw_tiles:
 
 .fill
 	; now fill the rest with filler tile or nothing
-	cmp.w	#3,level_number
+	move.l	a0,-(a7)
+	move.l	current_player(pc),a0
+	cmp.w	#3,level_number(a0)
+	movem.l	(a7)+,a0
 	bcc.b	.fill_with_tile
 	; empty
 	cmp.w	d7,d6
@@ -1980,29 +2006,26 @@ add_to_fuel:
 ; trashes: nothing
 
 add_to_score:
-	move.l	d1,-(a7)
+	movem.l	d1/a4,-(a7)
 	tst.b	demo_mode
 	bne.b	.below
-    move.l  score(pc),previous_score
+	move.l	current_player(pc),a4
+    move.l  score(a4),previous_score(a4)
 
-    add.l   d0,score
+    add.l   d0,score(a4)
     move.l  score_to_track(pc),d1
     ; was below, check new score
-    cmp.l   score(pc),d1    ; is current score above xtra life score
+    cmp.l   score(a4),d1    ; is current score above xtra life score
     bcc.b   .below        ; not yet
     ; above next extra life score
-    cmp.l   previous_score(pc),d1
+    cmp.l   previous_score(a4),d1
     bcs.b   .below
     
-	IFD		EXTRA_LIFE_PERIOD
-    add.l   #EXTRA_LIFE_PERIOD,d1
-    move.l  d1,score_to_track
-    ENDC
 	
     move.w  #MSG_SHOW,extra_life_message
-    addq.b   #1,nb_lives
+    addq.b   #1,nb_lives(a4)
 .below
-	move.l	(a7)+,d1
+	movem.l	(a7)+,d1/a4
     rts
     
 random:
@@ -2620,6 +2643,7 @@ draw_level_map
 	
 draw_current_level
     lea $DFF000,A5
+	move.l	current_player(pc),a4
 	move.w	#16,d0	; X=16
 	move.w	#8,d1
 	move.w	#5,d7	; 6 tiles
@@ -2634,7 +2658,7 @@ draw_current_level
 	add.w	#24*NB_BYTES_PER_LINE,a1
 	ENDC
 	lea		red_level_mark,a0
-	cmp.w	level_number(pc),d6
+	cmp.w	level_number(a4),d6
 	beq.b	.ploop
 	bcs.b	.ploop
 	lea		purple_level_mark,a0
@@ -2718,10 +2742,12 @@ LIVES_OFFSET = 236*NB_BYTES_PER_LINE+2
 	ENDC
 	
 draw_last_life
+	move.l	current_player(pc),a4
     move.w   #1,d0      ; draw only last life
     bra.b   draw_the_lives
     
 draw_lives:
+	move.l	current_player(pc),a4
     moveq.w #NB_PLANES-1,d7
     lea	screen_data+LIVES_OFFSET,a1
 .cloop
@@ -2735,7 +2761,8 @@ draw_lives:
     clr D0
 	
 draw_the_lives
-    move.b  nb_lives(pc),d7
+
+    move.b  nb_lives(a4),d7
     ext     d7
     subq.w  #2,d7
     bmi.b   .out
@@ -2766,9 +2793,11 @@ draw_the_lives
 MF_OFFSET = LIVES_OFFSET+NB_BYTES_PER_PLAYFIELD_LINE-3
     
 draw_mission_flags:
+	move.l	current_player(pc),a4
+
 	lea	screen_data+MF_OFFSET,a1
 	lea	mission_flag,a0
-    move.w  nb_missions_completed(pc),d2
+    move.w  nb_missions_completed(a4),d2
     cmp.w   #8,d2
     bcs.b   .ok
     move.w  #8,d2
@@ -2819,14 +2848,17 @@ draw_ground:
 	lea		screen_ground_rocket_table,a4
 	; clear level number so draw_tiles won't fill with bricks
 	; in higher levels
-	move.w	level_number(pc),-(a7)
-	clr.w	level_number
+	move.l	current_player(pc),a0
+	
+	move.w	level_number(a0),-(a7)
+	clr.w	level_number(a0)
 .tileloop
 	bsr	draw_tiles
 	addq.w	#1,D0
 	addq.w	#1,a5
 	dbf	d7,.tileloop
-	move.w	(a7)+,level_number
+	move.l	current_player(pc),a0
+	move.w	(a7)+,level_number(a0)
 	rts
 	
 	
@@ -3204,7 +3236,8 @@ level3_interrupt:
 .vblank
     moveq.l #1,d0
     bsr _read_joystick
-    
+    move.l	current_player(pc),a4
+	
     move.l  joystick_state(pc),d2
     btst    #JPB_BTN_PLAY,d0
     beq.b   .no_play
@@ -3227,7 +3260,7 @@ level3_interrupt:
     tst.b   ($64,a0)    ; l-alt key
     beq.b   .no_fire2
 	; using bomb on keyboard sets 2-button control
-	clr.b	one_button_control_option
+	clr.b	one_button_control_option(a4)
     bset    #JPB_BTN_BLU,d0
 .no_fire2
     tst.b   ($4C,a0)    ; up key
@@ -3390,8 +3423,9 @@ update_all
 	bsr	update_mystery_scores
 	
 	; specific/enemy update according to level
+	move.l	current_player(pc),a4
 	lea		update_table(pc),a0
-	move.w	level_number(pc),d0
+	move.w	level_number(a4),d0
 	add.w	d0,d0
 	add.w	d0,d0
 	move.l	(a0,d0.w),a0
@@ -3413,11 +3447,11 @@ update_all
     bsr update_player
     tst.w   player_killed_timer
     bpl.b   .skip_cc     ; player killed, no collisions	
-	cmp.w	#4,level_number
+	move.l	current_player(pc),a4
+	cmp.w	#4,level_number(a4)
 	bcc.b	.no_airborne_enemies
 
 	; collision with airborne enemies
-	lea		player(pc),a4
 	move.w	xpos(a4),d0
 	move.w	ypos(a4),d1
 	move.w	#23,d2		; last pixel is forgiving
@@ -3688,7 +3722,8 @@ draw_scrolling_tiles
 	lea		level6map(pc),a6
 	bra.b	.no_end
 .level_completed
-	addq.w	#1,level_number
+	move.l	current_player(pc),a4
+	addq.w	#1,level_number(a4)
 	st.b	next_level_flag
 	bsr		update_level_data
 
@@ -3927,7 +3962,7 @@ check_collisions
 	move.w	ypos(a3),d0
 	
 	clr.w	d0
-    lea player(pc),a3
+    move.l	current_player(pc),a3
 	; testing 2 tiles on ship only, let's see how it goes
 	; front
     move.w  xpos(a3),d2
@@ -3960,7 +3995,8 @@ player_killed:
 player_really_killed
 	move.w	#PLAYER_KILL_TIMER,player_killed_timer
 	clr.w	death_frame_offset
-	clr.w	player+frame
+	clr.w	player_1+frame
+	clr.w	player_2+frame
 	lea	player_killed_sound,a0
 	bsr	play_fx
 	rts
@@ -4262,7 +4298,7 @@ play_loop_fx
     
     
 update_player
-    lea     player(pc),a4
+    move.l  current_player(pc),a4
     move.w  player_killed_timer(pc),d6
     bmi.b   .alive
 
@@ -4561,10 +4597,10 @@ create_bomb:
 	bmi.b	.no_bomb	; no more bomb slots
 .found_bomb_slot
 	; launch the bomb
-	lea	player(pc),a0
 	clr.w	frame(a4)
 	clr.w	move_index(a4)
 	; init bomb with ship position plus something
+	move.l	current_player(pc),a0
 	move.w	xpos(a0),d0
 	add.w	#8,d0
 	move.w	d0,xpos(a4)
@@ -4630,7 +4666,7 @@ create_shot
 	bsr	find_slot
 	tst.w	d7
 	bmi.b	.out
-	lea		player(pc),a0
+	move.l	current_player(pc),a0
 	; set the coords
 	move.w	xpos(a0),d0
 	add.w	#4*8,d0
@@ -5319,7 +5355,8 @@ object_to_enemy_collision:
 	tst	d4
 	beq.b	.no_scoring
 	moveq.l	#8,D0	; 80 points
-	cmp.w	#1,level_number
+	move.l	current_player(pc),a0
+	cmp.w	#1,level_number(a0)
 	bne.b	.no_ufos
 	move.l	#10,d0
 .no_ufos
@@ -5694,8 +5731,8 @@ old_erase_bombs:
 ; draw player, dual playfield, skipping 2 planes each time
 
 draw_player:
-    lea     player(pc),a2
-    move.l  previous_address(a2),d5
+    move.l	current_player(pc),a4
+    move.l  previous_address(a4),d5
     bne.b   .not_first_draw
     moveq.l #-1,d5
 	bra.b	.no_erase
@@ -5722,11 +5759,11 @@ draw_player:
 .normal
 
 	lea		ship_sprite_table(pc),a0
-	move.w	frame(a2),d0
+	move.w	frame(a4),d0
 	move.l	(a0,d0.w),a0
 .shipblit
-    move.w  xpos(a2),d3
-    move.w  ypos(a2),d4
+    move.w  xpos(a4),d3
+    move.w  ypos(a4),d4
 	IFD		ARCADE_SCREEN_LAYOUT
 	add.w	#24,d4
 	ENDC
@@ -5741,7 +5778,7 @@ draw_player:
     move.l  a1,a2
     lea (BOB_32X16_PLANE_SIZE*3,a0),a3
     bsr blit_ship_cookie_cut
-    move.l  a1,previous_address+player
+    move.l  a1,previous_address(a4)
     
     ; remove previous second plane before blitting the new one
     ; nice as it works in parallel with the first plane blit started above
@@ -5840,10 +5877,6 @@ direction_speed_table
     ; down
     dc.w    0,1
     
-grid_align_table
-    REPT    320
-    dc.w    (REPTN&$1F8)+4
-    ENDR
     
 HW_SpriteXTable
   rept 320
@@ -5885,7 +5918,7 @@ get_tile_type:
     ; no need to test sign (bmi) as bcc works unsigned so works on negative!
     ; apply x,y offset
 	IFD		ARCADE_SCREEN_LAYOUT
-	add.w	#24,d1
+	;add.w	#8,d1
 	ENDC
 	
     lsr.w   #3,d1       ; 8 divide : tile
@@ -6916,12 +6949,7 @@ prev_record_joystick_state
 
 current_state:
     dc.w    0
-score:
-    dc.l    0
-displayed_score:
-    dc.l    0
-previous_score:
-    dc.l    0
+
 score_to_track:
     dc.l    0
 
@@ -6939,8 +6967,6 @@ extra_life_sound_counter
 extra_life_sound_timer
     dc.w    0
 ; 0: level 1
-level_number:
-    dc.w    0
 enemy_kill_timer
     dc.w    0
 player_killed_timer:
@@ -6981,6 +7007,8 @@ base_dest_address:
 	dc.l	0
 map_pointer
 	dc.l	0
+current_player
+	dc.l	0
 scroll_offset
 	dc.w	0
 scroll_shift
@@ -6999,8 +7027,6 @@ low_fuel_sound_timer
 	dc.w	0
 fireball_sound_timer
 	dc.w	0
-nb_missions_completed
-	dc.w	0
 mission_completed_countdown
 	dc.w	0
 enemy_hitbox_x_margin:
@@ -7018,10 +7044,6 @@ display_player_one_message
 draw_tile_column_message
 	dc.b	0
 do_restart_game_message:
-	dc.b	0
-nb_lives:
-    dc.b    0
-one_button_control_option
 	dc.b	0
 fuel_depletion_timer
 	dc.b	0
@@ -7381,7 +7403,9 @@ end_screen_palette
 	include	"tilemap.s"
     
 	even
-player:
+player_1:
+    ds.b    Player_SIZEOF
+player_2:
     ds.b    Player_SIZEOF
 
 keyboard_table:
@@ -7513,10 +7537,16 @@ stars_sprites_copperlist:
 	ENDR
 end_stars_sprites_copperlist
 	;;dc.b	$2C+(NB_STAR_LINES-1)*4+2,1
-    dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
+	 
+   IFND	ARCADE_SCREEN_LAYOUT
+   dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
+   ENDC
 
    dc.w  $FFDF,$FFFE            ; PAL wait (256)
-   dc.w  $2201,$FFFE            ; PAL extra wait (around 288)
+   dc.w  $2001,$FFFE            ; PAL extra wait (around 288)
+   IFD	ARCADE_SCREEN_LAYOUT
+   dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
+   ENDC
    dc.w intreq,$8010            ; generate copper interrupt
     dc.l    -2				; end of copperlist
 
