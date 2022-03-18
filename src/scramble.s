@@ -151,6 +151,8 @@ NB_TICKS_PER_SEC = 50
 ; game logic ticks
 ORIGINAL_TICKS_PER_SEC = 60
 
+ARCADE_SCREEN_LAYOUT
+
 	IFND	INTRO_TICKS_PER_SEC
 INTRO_TICKS_PER_SEC = ORIGINAL_TICKS_PER_SEC
 	ENDC
@@ -164,7 +166,7 @@ BOB_16X16_PLANE_SIZE = 64
 BOB_32X16_PLANE_SIZE = 96
 BOB_8X8_PLANE_SIZE = 16
 
-NB_LINES = 31*8
+NB_LINES = 256
 SCREEN_PLANE_SIZE = NB_BYTES_PER_LINE*NB_LINES
 SCROLL_PLANE_SIZE = NB_BYTES_PER_SCROLL_SCREEN_LINE*NB_LINES
 NB_PLANES   = 3
@@ -1038,6 +1040,9 @@ clear_scores
     
 ; draw score with titles and extra 0
 draw_score:
+ 
+	IFND	ARCADE_SCREEN_LAYOUT
+	; legacy compact score display at the bottom
     lea p1_string(pc),a0
     move.w  #24,d0
     move.w  #Y_MAX-8,d1
@@ -1066,12 +1071,7 @@ draw_score:
     bsr     draw_high_score
     
 	rts
-    
-
-
-
-    rts
-    
+	
 ; < D2 score
 ; trashes D0-D3
 draw_current_score:
@@ -1080,6 +1080,60 @@ draw_current_score:
     move.w  #6,d3
 	move.w	#$EE0,d4
     bra write_color_decimal_number
+; < D2: highscore
+draw_high_score
+    move.w  #120+40,d0
+    move.w  #Y_MAX-8,d1
+    move.w  #6,d3
+    move.w  #$0ee0,d4    
+    bra write_color_decimal_number	
+    ELSE
+
+    lea p1_string(pc),a0
+    move.w  #24,d0
+    move.w  #-24,d1
+    move.w  #WHITE_COLOR,d2
+    bsr write_color_string
+
+    lea high_score_string(pc),a0
+    move.w  #72,d0
+    bsr write_color_string
+	
+	move.w	#$EE0,d2
+    lea score_string(pc),a0
+    move.w  #0,d0
+    move.w  #-16,d1
+    bsr write_color_string
+
+    ; extra 0
+    lea score_string(pc),a0
+    move.w  #80,d0
+    bsr write_color_string
+
+    move.l  score(pc),d2
+    bsr     draw_current_score
+
+    move.l  high_score(pc),d2
+    bra     draw_high_score    
+
+; < D2 score
+; trashes D0-D3
+draw_current_score:
+    move.w  #0,d0
+    move.w  #-16,d1
+    move.w  #6,d3
+	move.w	#$EE0,d4
+    bra write_color_decimal_number
+; < D2: highscore
+draw_high_score
+    move.w  #80,d0
+    move.w  #-16,d1
+    move.w  #6,d3
+    move.w  #$0ee0,d4    
+    bra write_color_decimal_number	
+	
+    ENDC
+
     
 ;init_scroll_mask_sprite
 ;	lea	scroll_mask_sprite,a1
@@ -1715,7 +1769,12 @@ draw_tiles:
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a1	; 2nd playfield
 	add.w	d5,a1		; add x offset
 
-	move.w	#16,d6	; current y
+	IFD		ARCADE_SCREEN_LAYOUT
+	move.w	#-8,d6	; current y
+	ELSE
+	move.w	#16,d6	; current y	
+	ENDC
+	
 	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,d4	; we'll need this value
 	move.w	(a6)+,d2	; number of vertical tiles to draw - upper part
 	beq.b	.lower
@@ -1898,13 +1957,7 @@ draw_base
 	rts
 .previous
 	dc.l	0
-; < D2: highscore
-draw_high_score
-    move.w  #120+40,d0
-    move.w  #Y_MAX-8,d1
-    move.w  #6,d3
-    move.w  #$0ee0,d4    
-    bra write_color_decimal_number
+
 
 
 ; < D0: fuel: positive or negative
@@ -2120,7 +2173,11 @@ draw_intro_screen
 	lea	screen_data,a1
 	move.w	#2,d3
 	move.w	#64,d0
+	IFD		ARCADE_SCREEN_LAYOUT
+	move.w	#74,d1
+	ELSE
 	move.w	#50,d1
+	ENDC
 .draw1
 	
     movem.l d0-d6/a0-a5,-(a7)
@@ -2138,7 +2195,12 @@ draw_intro_screen
 	lea	scroll_data,a1
 	move.w	#2,d3
 	move.w	#64,d0
+	move.w	#64,d0
+	IFD		ARCADE_SCREEN_LAYOUT
+	move.w	#146,d1
+	ELSE
 	move.w	#146-24,d1
+	ENDC
 .draw2
 	
     movem.l d0-d6/a0-a5,-(a7)
@@ -2542,6 +2604,9 @@ draw_level_map
 	move.w	#2,d5		; 3 planes
 	;;move.l	a2,a0	; next level pic
 	lea		screen_data,a1
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24*NB_BYTES_PER_LINE,a1
+	ENDC
 .ploop
     movem.l d0-d6/a1-a4,-(a7)
     bsr blit_plane_any_internal
@@ -2565,6 +2630,9 @@ draw_current_level
 .lloop
 	move.w	#2,d5		; 3 planes
 	lea		screen_data,a1
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24*NB_BYTES_PER_LINE,a1
+	ENDC
 	lea		red_level_mark,a0
 	cmp.w	level_number(pc),d6
 	beq.b	.ploop
@@ -2582,15 +2650,21 @@ draw_current_level
 	dbf		d7,.lloop
 	rts
 	
-FUEL_OFFSET = Y_MAX*NB_BYTES_PER_LINE+8
+	IFND	ARCADE_SCREEN_LAYOUT
+FUEL_Y = Y_MAX
+	ELSE
+FUEL_Y = 240
+	ENDC
+	
+FUEL_OFFSET = FUEL_Y*NB_BYTES_PER_LINE+10
     
 ; draw fuel text & full amount
 ; < d0: color of yellow
 draw_fuel_with_text
 	move.w	d0,d2
 	lea	fuel_text(pc),a0
-	move.w	#24,d0
-	move.w	#Y_MAX,d1
+	move.w	#24+16,d0
+	move.w	#FUEL_Y-24,d1
 	bsr		write_color_string
 draw_fuel:
 	moveq.w	#15,d6
@@ -2637,9 +2711,12 @@ draw_fuel:
 fuel_text
 	dc.b	"FUEL",0
 	even
-	
+	IFD	ARCADE_SCREEN_LAYOUT
+LIVES_OFFSET = 248*NB_BYTES_PER_LINE+2	
+	ELSE
 LIVES_OFFSET = 236*NB_BYTES_PER_LINE+2
-
+	ENDC
+	
 draw_last_life
     move.w   #1,d0      ; draw only last life
     bra.b   draw_the_lives
@@ -3409,8 +3486,10 @@ draw_mission_completed
 	bsr	draw_fuel_with_text
 	bsr	draw_lives
 	bsr	draw_mission_flags
-	;;bsr	draw_score
- 
+	IFD	ARCADE_SCREEN_LAYOUT
+	bsr	draw_score
+	ENDC
+	
 	; the palette of the text is correct (menu palette)
 	move.w	#56,d0
 	move.w	#96-24,d1
@@ -3489,7 +3568,11 @@ copy_tiles
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
 	add.w	d1,d0
 	
+	IFD		ARCADE_SCREEN_LAYOUT
+	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*40,a2	; base
+	ELSE
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a2	; base
+	ENDC
 	lea		(a2,d0.w),a0	; source
 	lea		(-2,a2,d1.w),a1	; dest
 	
@@ -4908,7 +4991,11 @@ remove_object
 	add.w	d2,a1
 
 	lea		mulNB_BYTES_PER_SCROLL_SCREEN_LINE_table(pc),a0
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24+8,d1
+	ELSE
 	addq.w	#8,d1	; y shift (empiric)
+	ENDC
 	add.w	d1,d1
 	; add y offset
 	add.w	(a0,d1.w),a1
@@ -5274,6 +5361,9 @@ draw_explosions:
 .do_draw
 	move.w	xpos(a4),d3
 	move.w	ypos(a4),d4
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24,d4
+	ENDC
     move.w d3,d0
     move.w d4,d1
     ; plane 0
@@ -5330,6 +5420,9 @@ draw_shots:
 .draw
 	move.w	xpos(a4),d2
 	move.w	ypos(a4),d3
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24,d3
+	ENDC
     lea screen_data,a1
 	move.l	d2,d0
 	move.l	d3,d1
@@ -5448,6 +5541,9 @@ internal_blit_3_object_planes:
     lea screen_data,a1
 	move.w	xpos(a4),d3
 	move.w	ypos(a4),d4
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24,d4
+	ENDC
     move.w d3,d0
     move.w d4,d1
     ; plane 0
@@ -5631,7 +5727,9 @@ draw_player:
 .shipblit
     move.w  xpos(a2),d3
     move.w  ypos(a2),d4
-
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24,d4
+	ENDC
     lea	screen_data,a1
 
     
@@ -5786,7 +5884,10 @@ get_tile_type:
     bcc.b   .out_of_bounds
     ; no need to test sign (bmi) as bcc works unsigned so works on negative!
     ; apply x,y offset
-
+	IFD		ARCADE_SCREEN_LAYOUT
+	add.w	#24,d1
+	ENDC
+	
     lsr.w   #3,d1       ; 8 divide : tile
 	subq.w	#1,d1		; correct 1 tile up (empiric)
     lea     mulNB_BYTES_PER_PLAYFIELD_LINE_table(pc),a0
@@ -6473,7 +6574,7 @@ write_blanked_color_string:
 ; args:
 ; < A0: c string
 ; < D0: X (multiple of 8)
-; < D1: Y
+; < D1: Y or Y-24 (if ARCADE_SCREEN_LAYOUT)
 ; < D2: RGB4 color (must be in palette!)
 ; > D0: number of characters written
 ; trashes: none
@@ -6521,13 +6622,16 @@ write_color_string:
 ; < A0: c string
 ; < A1: plane
 ; < D0: X (multiple of 8 else it's rounded)
-; < D1: Y
+; < D1: Y-24
 ; > D0: number of characters written
 ; trashes: none
 
 write_string:
     movem.l A0-A2/d1-D2,-(a7)
     clr.w   d2
+	IFD	ARCADE_SCREEN_LAYOUT
+	add.w	#24,d1
+	ENDC
     ADD_XY_TO_A1    a2
     moveq.l #0,d0
 .loop
@@ -7096,11 +7200,15 @@ space
     ds.b    8,0
     
 high_score_string
+	IFD	ARCADE_SCREEN_LAYOUT
+    dc.b    "HIGH SCORE",0
+	ELSE
     dc.b    "HIGH",0
+	ENDC
 p1_string
     dc.b    "1UP",0
 score_string
-    dc.b    "      00",0
+    dc.b    "     00",0
 game_over_string
     dc.b    "GAME##OVER",0
 player_one_string
@@ -7351,7 +7459,11 @@ colors:
    dc.w color,0     ; fix black (so debug can flash color0)
    dc.w color+DYN_COLOR*2
    dc.w	$80D	; force magenta on color 4 (level filler)
+   IFD	ARCADE_SCREEN_LAYOUT
+   dc.b	$30+15+24
+   ELSE
 	dc.b	$30+15	; wait till we pass the purple rectangles
+   ENDC
 	dc.b	1
 	dc.w	$FFFE   
 	; and reset the color to what it was in the palette
@@ -7361,7 +7473,7 @@ dyn_color_reset:
 end_color_copper:
 	; one of ross' magic value so the screen is centered
    dc.w  diwstrt,$30c1
-   dc.w  diwstop,$2891
+   dc.w  diwstop,$3091
    ; we don't need to set it here
    dc.w  bplcon1
 bplcon1_value:
