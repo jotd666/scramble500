@@ -96,7 +96,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -165,10 +165,9 @@ ARCADE_SCREEN_LAYOUT
 INTRO_TICKS_PER_SEC = ORIGINAL_TICKS_PER_SEC
 	ENDC
 	
-WHITE_COLOR = $CCD
 
 NB_BYTES_PER_LINE = 40
-NB_BYTES_PER_PLAYFIELD_LINE = 28
+NB_BYTES_PER_PLAYFIELD_LINE = 30
 NB_BYTES_PER_SCROLL_SCREEN_LINE = NB_BYTES_PER_PLAYFIELD_LINE*2+6
 BOB_16X16_PLANE_SIZE = 64
 BOB_32X16_PLANE_SIZE = 96
@@ -484,21 +483,34 @@ Start:
     clr.w copjmp1(a5)
 
 ;playfield init
-
-    move.w #$3081,diwstrt(a5)             ; valeurs standard pour
-    move.w #$30C1,diwstop(a5)             ; la fenêtre écran
-    move.w #$0038,ddfstrt(a5)             ; et le DMA bitplane
+	; will be modified later
+;   move.w #$3081,diwstrt(a5)
+;   move.w #$30C1,diwstop(a5)
+;   move.w #$0038,ddfstrt(a5)
+;   move.w #$00D0,ddfstop(a5)
+	
+    move.w #$3091,diwstrt(a5)
+    move.w #$3071,diwstop(a5)
+    move.w #$0038,ddfstrt(a5)
     move.w #$00D0,ddfstop(a5)
 	
+	
+	; one of ross' magic value so the screen is centered
+  ; move.w #$30c1,diwstrt
+  ; move.w #$30a1,diwstop
+  ; move.w #$0050,ddfstrt
+  ; move.w #$00C0,ddfstop
+   
+BPLMOD = 0  ; was $C
 	; dual playfield
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
     ;;clr.w bplcon2(a5)                     ; no priority (sprites behind)
-    move.w #$C,bpl1mod(a5)                ; one of ross' magic value so the screen is centered
+    move.w #BPLMOD,bpl1mod(a5)                ; one of ross' magic value so the screen is centered
 
 intro:
     lea _custom,a5
     clr.w bplcon1_value                   ; reset scrolling shift to 0 in copperlist
-    move.w #$C,bpl2mod(a5)                ; modulo of 2nd playfield, one of ross' magic value 
+    move.w #BPLMOD,bpl2mod(a5)                ; modulo of 2nd playfield, one of ross' magic value 
 	; (to be able to draw ships with a "classic" blit routine in the "SCORE" screen)
 	clr.w	d0
 	bsr		set_playfield_planes	; no scroll offset
@@ -506,9 +518,8 @@ intro:
     move.w  #$7FFF,(intena,a5)
     move.w  #$7FFF,(intreq,a5)
 
-    lea menu_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette	
+	bsr		load_menu_palette
+	
     
     bsr clear_screen
     bsr	clear_playfield_planes
@@ -606,9 +617,7 @@ intro:
     bsr init_new_play
 
 .new_mission
-    lea objects_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette		
+	bsr	load_game_palette
 	
     clr.l   state_timer
 
@@ -620,7 +629,6 @@ intro:
 
     bsr wait_bof
     
-	move.l	current_player(pc),a4
     bsr draw_score
 
     ; for debug
@@ -643,7 +651,7 @@ intro:
 	; set playfield modulo in scroll mode (wider)
 	; following ross value changes to get the screen centered, I empirically
 	; added $C to make display correct (that's magic, I don't know what I'm doing)
-    move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE+$C,bpl2mod(a5)
+    move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE+BPLMOD,bpl2mod(a5)
 	bsr	init_bitplanes_copperlist
     
 	bsr	draw_ground	
@@ -840,7 +848,23 @@ set_game_over:
     move.w  #STATE_GAME_OVER,current_state
     move.l  #GAME_OVER_TIMER,state_timer
 	rts
+
+load_menu_palette	
+    lea menu_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette	
+	move.w	#$FF0,yellow_color
+	move.w	#$FFF,white_color	
+	rts
 	
+load_game_palette
+    lea objects_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette		
+	move.w	#$CCD,white_color
+	move.w	#$EE0,yellow_color
+	rts
+
 ; < A0: palette
 ; < D0: nb colors
 
@@ -994,7 +1018,7 @@ update_level_data:
 ; x/y hitbox margin on 16x16 enemies
 .hitbox_margin_data
 	dc.w	4,0	; rockets
-	dc.w	2,3	; ufos
+	dc.w	2,4	; ufos
 	dc.w	4,3	; fireballs
 	dc.w	4,0	; rockets
 	dc.w	0,0	; no enemies
@@ -1065,14 +1089,14 @@ draw_score:
     lea p1_string(pc),a0
     move.w  #24,d0
     move.w  #Y_MAX-8,d1
-    move.w  #WHITE_COLOR,d2
+    move.w  white_color(pc),d2
     bsr write_color_string
 
     lea high_score_string(pc),a0
-    move.w  #120,d0
+    move.w  #136,d0
     bsr write_color_string
 	
-	move.w	#$EE0,d2
+	move.w	yellow_color(pc),d2
     lea score_string(pc),a0
     move.w  #48,d0
     bsr write_color_string
@@ -1097,36 +1121,38 @@ draw_current_score:
     move.w  #56,d0
     move.w  #Y_MAX-8,d1
     move.w  #6,d3
-	move.w	#$EE0,d4
+	move.w	yellow_color(pc),d4
     bra write_color_decimal_number
 ; < D2: highscore
 draw_high_score
     move.w  #120+40,d0
     move.w  #Y_MAX-8,d1
     move.w  #6,d3
-    move.w  #$0ee0,d4    
+    move.w  yellow_color(pc),d4    
     bra write_color_decimal_number	
+	
+	
     ELSE
 
     lea p1_string(pc),a0
-    move.w  #24,d0
+    move.w  #24+16,d0
     move.w  #-24,d1
-    move.w  #WHITE_COLOR,d2
+    move.w  white_color(pc),d2
     bsr write_color_string
 
     lea high_score_string(pc),a0
-    move.w  #72,d0
+    move.w  #72+16,d0
     bsr write_color_string
 	
-	move.w	#$EE0,d2
+	move.w	yellow_color(pc),d2
     lea score_string(pc),a0
-    move.w  #0,d0
+    move.w  #16,d0
     move.w  #-16,d1
     bsr write_color_string
 
     ; extra 0
     lea score_string(pc),a0
-    move.w  #80,d0
+    move.w  #80+16,d0
     bsr write_color_string
 
     bsr     draw_current_score
@@ -1139,17 +1165,17 @@ draw_current_score:
 	move.l	current_player(pc),a4
     move.l  score(a4),d2
 
-    move.w  #0,d0
+    move.w  #16,d0
     move.w  #-16,d1
     move.w  #6,d3
-	move.w	#$EE0,d4
+	move.w	yellow_color(pc),d4
     bra write_color_decimal_number
 ; < D2: highscore
 draw_high_score
-    move.w  #80,d0
+    move.w  #80+16,d0
     move.w  #-16,d1
     move.w  #6,d3
-    move.w  #$0ee0,d4    
+    move.w  yellow_color(pc),d4    
     bra write_color_decimal_number	
 	
     ENDC
@@ -1585,14 +1611,12 @@ draw_all
 	
 	; set game palette
 	
-    lea objects_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette		
-
+	bsr		load_game_palette
+	
 	lea	player_one_string(pc),a0
 	move.w	#72,d0
 	move.w	#160-24,d1
-    move.w  #WHITE_COLOR,d2
+    move.w  white_color(pc),d2
     bsr write_color_string
 	
 	; artifically display all 3 lives at start
@@ -1612,7 +1636,7 @@ draw_all
 .select
 	move.w	#32,d0
 	move.w	#160,d1
-    move.w  #WHITE_COLOR,d2
+    move.w  white_color(pc),d2
     bsr write_blanked_color_string
 
 .wait_for_start
@@ -1645,7 +1669,7 @@ PLAYER_ONE_Y = 102-14
 	move.w	#$0,colors+2
     move.w  #72,d0
     move.w  #136,d1
-    move.w  #WHITE_COLOR,d2   ; red
+    move.w  white_color(pc),d2
     lea player_one_string(pc),a0
     bsr write_color_string
     move.w  #72,d0
@@ -1781,12 +1805,12 @@ nothing
 ; < A4: pointer on cell to update in screen rocket scroll list
 ; < A5: pointer on column to update in screen scroll tilemap
 ; < A6: map pointer
-; < D0: x/y offset in bytes
+; < D0: x offset in bytes
 ; > A6: new map pointer
 draw_tiles:
 	movem.l	d0-d7/A0-A5,-(a7)
 	lea		tiles,a0
-	clr.w	(a4)	; zero coord: no rocket in the column by default	
+	clr.w	(a4)	; zero coord: no rocket in the column by default
 	move.w	d0,d5	; save X-offset for later on
 	IFD		ARCADE_SCREEN_LAYOUT
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*40,a1	; 2nd playfield
@@ -1975,8 +1999,8 @@ draw_base
 	moveq.w	#1,d1
 .cloop
 	REPT	16
-	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a1)
-	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE+1,a1)
+	;clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a1)
+	;clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE+1,a1)
 	ENDR
 	add.w	#SCROLL_PLANE_SIZE,a1
 	dbf	d1,.cloop
@@ -2100,10 +2124,11 @@ draw_intro_screen
     bra.b   .no_change  ; should not be reached
 .init1    
     bsr clear_screen
+	
+	bsr	load_menu_palette
+	
+    bsr draw_score
     
-    lea menu_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette	
 
         
     lea    .play(pc),a0
@@ -2168,6 +2193,7 @@ draw_intro_screen
 .init3
 	
     bsr clear_screen
+	bsr	draw_score
     ; characters
     move.w  #56,d0
     move.w  #56-24,d1
@@ -2267,7 +2293,7 @@ draw_intro_screen
     move.w  (a1)+,d1
     move.b  (a1)+,(a0)
     clr.b   (a1)    ; ack
-    move.w  #WHITE_COLOR,d2
+    move.w  white_color(pc),d2
     bsr write_color_string
 .nothing_to_print
     rts
@@ -2432,8 +2458,8 @@ draw_title
 draw_copyright
     lea    .copyright(pc),a0
     move.w  #64,d0
-    move.w  #221-24,d1
-    move.w  #$0fff,d2
+    move.w  #221-16,d1
+    move.w  white_color(pc),d2
     bra write_color_string    
 .copyright
     dc.b    'c KONAMI  1981',0
@@ -2612,12 +2638,14 @@ clear_plane_any_blitter_internal:
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
     rts
 
+MAP_X = 32
+
 draw_level_map
     lea $DFF000,A5
 
 	lea	level_number_tiles,a0
 	clr.w	d1		; Y=0
-	move.w	#16,d0	; X=16
+	move.w	#MAP_X,d0	; X=32
 	move.w	#5,d7	; 6 tiles
 
 	moveq.l #-1,d3		; no mask
@@ -2639,12 +2667,13 @@ draw_level_map
 	dbf		d5,.ploop
 	add.w	#32,d0
 	dbf		d7,.lloop
+	
 	rts
 	
 draw_current_level
     lea $DFF000,A5
 	move.l	current_player(pc),a4
-	move.w	#16,d0	; X=16
+	move.w	#MAP_X,d0	; X=16
 	move.w	#8,d1
 	move.w	#5,d7	; 6 tiles
 	clr.w	d6
@@ -2876,14 +2905,14 @@ draw_scroll_debug
 	lea	.scrollpos(pc),a0
 	move.w	#0,d1
 	move.w	#16,d0
-	move.w	#WHITE_COLOR,d2
+	move.w	white_color(pc),d2
 	bsr		write_color_string
 	move.w	scroll_offset(pc),d2
 	ext.l	d2
 	move.W	#3,d3
 	move.w	#0,d1
 	move.w	#96,d0
-	move.w	#WHITE_COLOR,d4
+	move.w	white_color(pc),d4
 	bsr		write_color_decimal_number
 	
 
@@ -2956,7 +2985,7 @@ exc10
 
 lockup
     move.l  (2,a7),d3
-    move.w  #WHITE_COLOR,d2
+    move.w  white_color(pc),d2
     move.w   #16,d0
     clr.w   d1
     bsr write_color_string
@@ -5925,7 +5954,7 @@ get_tile_type:
 	subq.w	#1,d1		; correct 1 tile up (empiric)
     lea     mulNB_BYTES_PER_PLAYFIELD_LINE_table(pc),a0
     add.w   d1,d1
-    move.w  (a0,d1.w),d1    ; times 28
+    move.w  (a0,d1.w),d1    ; times 28 or 30 or whatever the value
     lea		screen_tile_table,a0
     
     add.w   d1,a0
@@ -6947,6 +6976,11 @@ prev_record_joystick_state
 
     ENDC
 
+white_color
+	dc.w	0
+yellow_color
+	dc.w	0
+	
 current_state:
     dc.w    0
 
@@ -7007,8 +7041,8 @@ base_dest_address:
 	dc.l	0
 map_pointer
 	dc.l	0
-current_player
-	dc.l	0
+current_player:
+	dc.l	player_1
 scroll_offset
 	dc.w	0
 scroll_shift
@@ -7247,7 +7281,7 @@ player_one_string_clear
 
     even
 ground_table:
-	REPT	28
+	REPT	NB_BYTES_PER_PLAYFIELD_LINE
 	dc.w	0
 	dc.w	1,200-24-16,GROUND_TILE
 	ENDR
@@ -7495,18 +7529,13 @@ colors:
 dyn_color_reset:
 	dc.w	$1c0     ; green or gray
 end_color_copper:
-	; one of ross' magic value so the screen is centered
-   dc.w  diwstrt,$30c1
-   dc.w  diwstop,$3091
    ; we don't need to set it here
    dc.w  bplcon1
 bplcon1_value:
    dc.w		$0000            ;  BPLCON1 := 0x0000
    ; proper sprite priority: below bitplanes for the stars effect
    dc.w  bplcon2,$0000            ;  BPLCON2
-   ; one of ross' magic value so the screen is centered
-   dc.w  ddfstrt,$0050            ;  DDFSTRT := 0x0038
-   dc.w  ddfstop,$00B8            ;  DDFSTOP := 0x00d0
+
 
 sprites:
 
@@ -7734,5 +7763,6 @@ screen_data:
 	; except when used to display the enemies, lets leave it to 3 planes
 scroll_data
 	ds.b	SCROLL_PLANE_SIZE*NB_PLANES,0
-    
+scroll_data_end
+
     	

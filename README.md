@@ -66,11 +66,14 @@ MINOR ISSUES:
 
 - level 4/5 filler bricks are inverted (brick then square) in the bottom section
   or is it the odd/even tile pattern? well, not a big issue
-- ambient sound lower volume?
 - 2 player mode?
-- add 16 pixels wide for screen display & perfect screen layout
+- center screen
 - smaller hitboxes for ufos
 - flashing 1UP/2UP
+- colors wrong in title
+- no copyright in "score table"
+- no scores in score table
+- player one game over => player xxx game over
 
 BUILDING FROM SOURCES:
 
