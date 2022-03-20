@@ -225,7 +225,6 @@ FILL_TILE_2 = FILL_TILE_1+1
 GROUND_TILE = 10
 
 PLAYER_KILL_TIMER = 16*4*3
-ENEMY_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 GAME_OVER_TIMER = ORIGINAL_TICKS_PER_SEC*3
 
 
@@ -587,7 +586,6 @@ intro:
 	clr.b	display_player_one_message
 	
 	move.w	#1,start_music_countdown	; default: no wait (demo mode / moves record)
-	
 	IFND		RECORD_INPUT_TABLE_SIZE
 	tst.b	demo_mode
 	bne.b	.wait_end_of_music
@@ -595,8 +593,8 @@ intro:
 	move.w	#3*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,start_music_countdown
 	ENDC
 .wait_end_of_music
-	cmp.w	#STATE_PLAYING,current_state
-	bne.b	.wait_end_of_music
+;	cmp.w	#STATE_PLAYING,current_state
+;	bne.b	.wait_end_of_music
 	
 .restart    
     lea _custom,a5
@@ -608,6 +606,8 @@ intro:
 	beq.b	.new_mission
 	move.l	#player_2,current_player
 	bsr	init_new_play
+	; reset to player 1 current player
+	move.l	#player_1,current_player    
 	
 .new_mission
 	bsr	load_game_palette
@@ -641,22 +641,7 @@ intro:
 	
     bsr wait_bof
 
-	; set playfield modulo in scroll mode (wider)
-	; following ross value changes to get the screen centered, I empirically
-	; added $C to make display correct (that's magic, I don't know what I'm doing)
-    move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE+BPLMOD,bpl2mod(a5)
-	bsr	init_bitplanes_copperlist
-    
-	bsr	draw_ground	
-    bsr draw_lives
-	bsr	clear_mission_flags
-	bsr	draw_mission_flags
-	move.w	#$EE0,d0
-    bsr draw_fuel_with_text
-	IFND	SCROLL_DEBUG
-	bsr	draw_level_map
-	bsr	draw_current_level
-	ENDC
+
 	
     move.w  #STATE_PLAYING,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
@@ -763,6 +748,9 @@ intro:
     bne.b   .no_save
     bsr     save_highscores
 .no_save
+	; TODO check if other player still has lives
+	; else game over for current player only
+	
     ; 3 seconds
     bsr		set_game_over
     bra.b   .game_over
@@ -1017,6 +1005,7 @@ update_level_data:
 	dc.w	0,0	; no enemies
 	dc.w	0,0	; no enemies
 init_new_play:
+	clr.w	player_change_screen_timer
 	move.l	current_player(pc),a4
 	clr.w	nb_missions_completed(a4)
     move.b  #START_NB_LIVES,nb_lives(a4)
@@ -1625,51 +1614,26 @@ draw_all
     
 .game_start_screen
     tst.l   state_timer
-    beq.b   draw_start_screen
-	tst.b	demo_mode
-	bne.b	.wait_for_start
+    bne.b   .no_first_tick_gss
+	bsr		draw_start_screen
+.no_first_tick_gss
+    lea .opo_string(pc),a0
+	tst.b	two_player_game
+	beq.b	.onep
+    lea .2p_string(pc),a0
 	
-	tst.b	game_started_flag
-	beq.b	.wait_for_start
-	tst.b	display_player_one_message
-	beq.b	.no_play
-	clr.b	display_player_one_message
-    bsr clear_screen
-    bsr	clear_playfield_planes
-	
-	; set game palette
-	
-	bsr		load_game_palette
-	
-	lea	player_one_string(pc),a0
-	move.w	#72,d0
-	move.w	#160-24,d1
+.onep
+    move.w  #56,d0
+    move.w  #116,d1
     move.w  white_color(pc),d2
-    bsr write_color_string
-	
-	; artifically display all 3 lives at start
-	; (player is not initialized yet)
-	
-	move.b	#START_NB_LIVES+1,nb_lives(a4)
-	bsr	draw_lives
-	clr.w	nb_missions_completed(a4)
-	bsr	draw_mission_flags
-	; real number of remaining lives (plus the one in play)
-.no_play
-	; controller option (amiga specific)
-	lea	one_button_control_text(pc),a0
-	tst.b	one_button_control_option(a4)
-	bne.b	.select
-	lea	two_button_control_text(pc),a0	
-.select
-	move.w	#32,d0
-	move.w	#160,d1
-    move.w  white_color(pc),d2
-    bsr write_blanked_color_string
-
-.wait_for_start
-    rts
+    bra write_color_string
     
+.opo_string:
+	dc.b	"ONE PLAYER ONLY",0
+.2p_string:
+    dc.b    " TWO PLAYERS   ",0
+	even
+	
 .life_lost
 	rts
 	
@@ -1707,6 +1671,81 @@ PLAYER_ONE_Y = 102-14
     bra.b   .draw_complete
 	
 .playing
+	tst.b	demo_mode
+	bne.b	.main_game_draw
+	
+	tst.w	player_change_screen_timer
+	bne.b	.draw_current_player
+	
+.player_first_life
+	tst.b	game_started_flag
+	bne.b	.main_game_draw
+	tst.b	display_player_one_message
+	beq.b	.no_play
+	clr.b	display_player_one_message
+	; set game palette
+.draw_current_player
+	
+	bsr		load_game_palette
+
+    bsr clear_screen
+    bsr	clear_playfield_planes
+	bsr	draw_score_and_player_title
+		
+	lea	player_one_string(pc),a0
+	cmp.l	#player_1,current_player
+	beq.b	.current_pl
+	lea	player_two_string(pc),a0
+.current_pl
+	move.w	#72,d0
+	move.w	#160-24,d1
+    move.w  white_color(pc),d2
+    bsr write_color_string
+	
+	; real number of remaining lives (plus the one in play)
+	bsr	draw_lives
+	bsr	draw_mission_flags
+	
+	tst.w	player_change_screen_timer
+	beq.b	.no_play
+	rts		; don't allow to change controls during play
+	
+.no_play
+	; controller option (amiga specific)
+	lea	one_button_control_text(pc),a0
+	move.l	current_player(pc),a4
+	tst.b	one_button_control_option(a4)
+	bne.b	.select
+	lea	two_button_control_text(pc),a0	
+.select
+	move.w	#32,d0
+	move.w	#160,d1
+    move.w  white_color(pc),d2
+    bra write_blanked_color_string
+	
+.main_game_draw
+	tst.b	draw_level_init_message
+	beq.b	.not_first_time
+	; set playfield modulo in scroll mode (wider)
+	; following ross value changes to get the screen centered, I empirically
+	; added $C to make display correct (that's magic, I don't know what I'm doing)
+	clr.b	draw_level_init_message
+    move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE+BPLMOD,bpl2mod(a5)
+	bsr	init_bitplanes_copperlist
+    
+	bsr	draw_ground	
+    bsr draw_lives
+	bsr	clear_mission_flags
+	bsr	draw_mission_flags
+	move.w	#$EE0,d0
+    bsr draw_fuel_with_text
+	IFND	SCROLL_DEBUG
+	bsr	draw_level_map
+	bsr	draw_current_level
+	ENDC
+	rts
+.not_first_time
+
 	; main game draw
 	; draw/update scrolling must absolutely
 	; be done first thing, else we can experience
@@ -2116,25 +2155,16 @@ draw_start_screen
     move.w  yellow_color(pc),d2
     bsr write_color_string
     
-    lea .opo_string(pc),a0
-    move.w  #48,d0
-    move.w  #116,d1
-    move.w  white_color(pc),d2
 	
-    bsr write_color_string
     lea .bp1_string(pc),a0
     move.w  #16,d0
     move.w  #148,d1
     move.w  #$0f40,d2
-    bsr write_color_string
+    bra write_color_string
 
-    
-    rts
     
 .psb_string
     dc.b    "PUSH START BUTTON",0
-.opo_string:
-    dc.b    "ONE OR TWO PLAYERS",0
 .bp1_string
     dc.b    "BONUS JET  FOR 10000 PTS",0
 
@@ -3379,42 +3409,16 @@ update_all
     
 .game_start_screen
 	addq.l	#1,state_timer
-	tst.b	play_start_music_message
-	beq.b	.not_started
-	tst.b	demo_mode
-	bne.b	.play
-	cmp.b	#2,play_start_music_message
-	beq.b	.no_play
-	st.b	game_started_flag
-	moveq	#0,d0
-    bsr.b	play_music
-	move.b	#2,play_start_music_message
-	st.b	display_player_one_message
-	; re-detect controllers just in case they were switched at this point
-	bsr		_detect_controller_types
-.no_play
-	move.w	start_music_countdown(pc),d0
-	subq.w	#1,d0
-	bne.b	.out
-.play
-	move.w	#STATE_PLAYING,current_state
-.out
-	move.w	d0,start_music_countdown
-.continue
-	tst.b	game_started_flag
-	beq.b	.not_started
 	move.l	joystick_state(pc),d0
 	move.l	previous_joy1(pc),d1
 	move.l	#JPF_BTN_LEFT|JPF_BTN_RIGHT|JPF_BTN_UP|JPF_BTN_DOWN,d2
 	and.l	d2,d0
-	beq.b	.no_dir_change
+	beq.b	.no_np_change
 	and.l	d2,d1
 	cmp.l	d1,d0
-	beq.b	.no_dir_change
-	move.l	current_player(pc),a0
-	eor.b	#$FF,one_button_control_option(a0)
-.no_dir_change
-.not_started
+	beq.b	.no_np_change
+	eor.b	#$FF,two_player_game
+.no_np_change
     rts
     
 .life_lost
@@ -3450,6 +3454,57 @@ update_all
     rts
     ; update
 .playing
+	move.w	player_change_screen_timer(pc),d0
+	beq.b	.no_cst
+	subq.w	#1,d0
+	move.w	d0,player_change_screen_timer
+	move.w	#2*ORIGINAL_TICKS_PER_SEC,d0
+	beq.b	.play
+	rts
+.no_cst
+
+	; "player one" or "player two" screens
+	tst.b	game_started_flag
+	bne.b	.really_playing
+	tst.b	play_start_music_message
+	beq.b	.not_started
+	tst.b	demo_mode
+	bne.b	.play
+	cmp.b	#2,play_start_music_message
+	beq.b	.no_play	
+	moveq	#0,d0
+    bsr.b	play_music
+	move.b	#2,play_start_music_message
+
+	st.b	display_player_one_message
+	; re-detect controllers just in case they were switched at this point
+	bsr		_detect_controller_types
+.no_play
+	move.w	start_music_countdown(pc),d0
+	subq.w	#1,d0
+	bne.b	.out
+.play
+	st.b	game_started_flag
+	st.b	draw_level_init_message
+.out
+	move.w	d0,start_music_countdown
+
+	move.l	joystick_state(pc),d0
+	move.l	previous_joy1(pc),d1
+	move.l	#JPF_BTN_LEFT|JPF_BTN_RIGHT|JPF_BTN_UP|JPF_BTN_DOWN,d2
+	and.l	d2,d0
+	beq.b	.no_dir_change
+	and.l	d2,d1
+	cmp.l	d1,d0
+	beq.b	.no_dir_change
+	move.l	current_player(pc),a0
+	eor.b	#$FF,one_button_control_option(a0)
+.no_dir_change
+.not_started
+	rts
+	
+	; the in-game part
+.really_playing
 	tst.b	game_completed_flag
 	beq.b	.no_completed
 	clr.b	game_completed_flag
@@ -4403,6 +4458,22 @@ update_player
 	move.w	d0,death_frame_offset   ; 0,1,2,3
     rts
 .restart_level
+	; tell the game to redraw the level
+	; we switch players if 2 player mode
+	tst.b	two_player_game
+	beq.b	.no_player_change
+	lea		player_1(pc),a0
+	move.l	current_player(pc),d1
+	cmp.l	a0,d1
+	bne.b	.set_p
+	lea		player_2(pc),a0
+.set_p
+	tst.b	nb_lives(a0)
+	beq.b	.no_player_change		; no switch, no lives for other player
+	move.l	a0,current_player
+	move.w	#ORIGINAL_TICKS_PER_SEC*3,player_change_screen_timer
+.no_player_change
+	st.b	draw_level_init_message
 	move.w  #STATE_LIFE_LOST,current_state
 	rts
 
@@ -7051,14 +7122,9 @@ intro_text_message:
     dc.w    0
 
 
+player_change_screen_timer
+	dc.w	0
 
-extra_life_sound_counter
-    dc.w    0
-extra_life_sound_timer
-    dc.w    0
-; 0: level 1
-enemy_kill_timer
-    dc.w    0
 player_killed_timer:
     dc.w    -1
 bonus_score_timer:
@@ -7128,6 +7194,8 @@ enemy_hitbox_x_len:
 enemy_hitbox_y_len:
 	dc.w	0
 draw_player_title_message:
+	dc.b	0
+draw_level_init_message:
 	dc.b	0
 play_start_music_message:
 	dc.b	0
@@ -7583,10 +7651,18 @@ BLANKER_SPRITE_INDEX = 5
 
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
+   IFD	ARCADE_SCREEN_LAYOUT
+   dc.w color+DYN_COLOR*2
+   dc.w	$FFF		; white for the scores
+   dc.b	$30+15
+	dc.b	1
+	dc.w	$FFFE   
+   ENDC
+   
    dc.w color+DYN_COLOR*2
    dc.w	$80D	; force magenta on color 4 (level filler)
    IFD	ARCADE_SCREEN_LAYOUT
-   dc.b	$30+15+24
+   dc.b	$30+40
    ELSE
 	dc.b	$30+15	; wait till we pass the purple rectangles
    ENDC

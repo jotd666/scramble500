@@ -66,16 +66,14 @@ MINOR ISSUES:
 
 - level 4/5 filler bricks are inverted (brick then square) in the bottom section
   or is it the odd/even tile pattern? well, not a big issue
-- 2 player mode?
-- center screen
-- smaller hitboxes for ufos
-- flashing 1UP/2UP
-- colors wrong in title
 - no copyright in "score table"
 - no scores displayed for enemies in score table
-- player one game over => player xxx game over
-- no sound UFO ambient
-- can shoot asteroids
+- player one game over => player xxx game over, don't quit, just set a game over message
+  before "PLAYER xx" when resuming if needed
+- trashed scores, missing 2UP
+- flashing P1/P2 screen
+- careful of start music seems broken since 2P mode 
+
 
 BUILDING FROM SOURCES:
 
