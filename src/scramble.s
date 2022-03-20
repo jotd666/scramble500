@@ -410,14 +410,13 @@ Start:
 	tst.b	controller_joypad_1
 	; if zero, no joypad detected => one button control
 	; by default
-	seq	player_1+one_button_control_option
+	seq	one_button_control_default_option
+	
 	clr.b	player_1+is_player_two
-	tst.b	controller_joypad_1
-	; if zero, no joypad detected => one button control
-	; by default
-	tst.b	controller_joypad_0
-	seq	player_2+one_button_control_option
+	move.b	one_button_control_default_option(pc),player_1+one_button_control_option	; will pick default first time
 	st.b	player_2+is_player_two
+	move.b	one_button_control_default_option(pc),player_2+one_button_control_option	; will pick default first time
+	
 	; don't shut off extra joypad buttons, reading the joypad costs cycles
 	; but AFTER vblank interrupt so we can afford it.
 
@@ -603,10 +602,13 @@ intro:
     lea _custom,a5
     move.w  #$1FFF,(intena,a5)
 
-	move.l	#player_1,current_player
-    
+	move.l	#player_1,current_player    
     bsr init_new_play
-
+	tst.b	two_player_game
+	beq.b	.new_mission
+	move.l	#player_2,current_player
+	bsr	init_new_play
+	
 .new_mission
 	bsr	load_game_palette
 	
@@ -1018,7 +1020,6 @@ init_new_play:
 	move.l	current_player(pc),a4
 	clr.w	nb_missions_completed(a4)
     move.b  #START_NB_LIVES,nb_lives(a4)
-
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
@@ -1074,14 +1075,21 @@ clear_scores
     
 draw_score_and_player_title
 	moveq	#1,d0
+	clr		d1
 	bsr	draw_player_title
+	tst.b	two_player_game
+	beq.b	.one_player
+	moveq	#1,d0
+	st		d1
+	bsr	draw_player_title
+.one_player	
 	bsr	draw_score
 	rts
 	
 ; draw score with highscore title and extra 0
 draw_score:
-	move.l	current_player(pc),a4
 	IFND	ARCADE_SCREEN_LAYOUT
+	move.l	current_player(pc),a4
 	; legacy compact score display at the bottom
     lea p1_string(pc),a0
     move.w  #24,d0
@@ -1133,6 +1141,7 @@ draw_high_score
 
 ; arcade layout
 
+	lea	player_1,a4
     lea high_score_string(pc),a0
     move.w  #72+16,d0
     bsr write_color_string
@@ -1150,15 +1159,34 @@ draw_high_score
 
     bsr     draw_current_score
 
+	tst.b	two_player_game
+	beq.b	.1p
+
+    ; extra 0
+    lea score_string(pc),a0
+    move.w  #128+40,d0
+    move.w  #-16,d1
+	move.w	yellow_color(pc),d2
+    bsr write_color_string
+
+	lea	player_2,a4
+    bsr     draw_current_score
+
+.1p
     move.l  high_score(pc),d2
     bra     draw_high_score    
 
+; < A4: player structure
+
 ; trashes D0-D3
 draw_current_score:
-	move.l	current_player(pc),a4
     move.l  score(a4),d2
 
     move.w  #16,d0
+	tst.b	is_player_two(a4)
+	beq.b	.p1
+	move.w	#168,d0
+.p1
     move.w  #-16,d1
     move.w  #6,d3
 	move.w	yellow_color(pc),d4
@@ -1173,17 +1201,16 @@ draw_high_score
 	
     ENDC
 
-; < D0: 0 clear, 1 draw
-
+; < D0.B: 0 clear, 1 draw
+; < D1.B: 0 player 1, 1 player 2
 draw_player_title
 	move.b	d0,d2
     lea p1_string(pc),a0
     move.w  #24+16,d0
-	
-	tst.b	is_player_two(a4)
+	tst.b	d1
 	beq.b	.player_1
     lea p2_string(pc),a0
-    move.w  #108+16,d0		; TODO	
+    move.w  #178+16,d0
 .player_1
 	tst.b	d2
 	bne.b	.draw
@@ -1730,6 +1757,7 @@ PLAYER_ONE_Y = 102-14
 	cmp.b	#1,d0
 	seq		d0
 	clr.b	draw_player_title_message
+	move.b	is_player_two(a4),d1
 	bsr	draw_player_title
 .nothing
 	bsr	draw_score
@@ -7123,6 +7151,10 @@ rockets_fly_flag:
 	dc.b	0
 game_started_flag:
 	dc.b	0
+two_player_game
+	dc.b	0
+one_button_control_default_option
+	dc.b	0
 enemy_launch_cyclic_counter
 	dc.b	0
 game_completed_flag
@@ -7303,6 +7335,8 @@ game_over_string
     dc.b    "GAME##OVER",0
 player_one_string
     dc.b    "PLAYER ONE",0
+player_two_string
+    dc.b    "PLAYER TWO",0
 one_button_control_text
 	dc.b	"ONE BUTTON JOYSTICK",0
 two_button_control_text
