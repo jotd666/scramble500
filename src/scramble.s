@@ -34,16 +34,8 @@
 
 
 INTERRUPTS_ON_MASK = $E038
-
-    STRUCTURE   SpritePalette,0
-    UWORD   color0
-    UWORD   color1
-    UWORD   color2
-    UWORD   color3
-    LABEL   SpritePalette_SIZEOF
     
 	STRUCTURE	Character,0
-    ULONG   character_id
 	ULONG	previous_address
 	UWORD	xpos
 	UWORD	ypos
@@ -61,6 +53,8 @@ INTERRUPTS_ON_MASK = $E038
 	UWORD	nb_missions_completed
 	UBYTE	nb_lives
 	UBYTE	one_button_control_option
+	UBYTE	is_player_two
+	UBYTE	pad
     LABEL   Player_SIZEOF
     
 	STRUCTURE	GfxObject,0
@@ -417,15 +411,15 @@ Start:
 	; if zero, no joypad detected => one button control
 	; by default
 	seq	player_1+one_button_control_option
+	clr.b	player_1+is_player_two
 	tst.b	controller_joypad_1
 	; if zero, no joypad detected => one button control
 	; by default
 	tst.b	controller_joypad_0
 	seq	player_2+one_button_control_option
+	st.b	player_2+is_player_two
 	; don't shut off extra joypad buttons, reading the joypad costs cycles
 	; but AFTER vblank interrupt so we can afford it.
-    ;;move.b  #0,controller_joypad_1
-    
 
 
 ; no multitask
@@ -489,19 +483,14 @@ Start:
 ;   move.w #$0038,ddfstrt(a5)
 ;   move.w #$00D0,ddfstop(a5)
 	
-    move.w #$3091,diwstrt(a5)
-    move.w #$3071,diwstop(a5)
-    move.w #$0038,ddfstrt(a5)
-    move.w #$00D0,ddfstop(a5)
-	
 	
 	; one of ross' magic value so the screen is centered
-  ; move.w #$30c1,diwstrt
-  ; move.w #$30a1,diwstop
-  ; move.w #$0050,ddfstrt
-  ; move.w #$00C0,ddfstop
+    move.w #$30b1,diwstrt(a5)
+    move.w #$3091,diwstop(a5)
+    move.w #$0048,ddfstrt(a5)
+    move.w #$00B8,ddfstop(a5)
+BPLMOD = $A		; bplmod needs to be altered too
    
-BPLMOD = 0  ; was $C
 	; dual playfield
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
     ;;clr.w bplcon2(a5)                     ; no priority (sprites behind)
@@ -527,7 +516,7 @@ intro:
 	;bsr	init_scroll_mask_sprite
 	bsr	init_stars
 	
-    bsr draw_score
+    bsr draw_score_and_player_title
 
     clr.l  state_timer
     clr.w  vbl_counter
@@ -554,7 +543,8 @@ intro:
     btst    #JPB_BTN_BLU,d0
     beq.b   .intro_loop
 	; started with blue or second button joy: 2 button control
-	clr.b	one_button_control_option
+	move.l	current_player(pc),a0
+	clr.b	one_button_control_option(a0)
 .exit_intro
     clr.b   demo_mode
 .out_intro
@@ -584,7 +574,8 @@ intro:
     bne.b   .wait_fire_release
     btst    #JPB_BTN_BLU,d0
     beq.b   .game_start_loop
-	clr.b	one_button_control_option
+	move.l	current_player(pc),a0
+	clr.b	one_button_control_option(a0)
 
 .wait_fire_release
     move.l  joystick_state(pc),d0
@@ -622,14 +613,14 @@ intro:
     clr.l   state_timer
 
     bsr clear_screen
-    bsr draw_score    
+    
     bsr init_level
     lea _custom,a5
     move.w  #$1FFF,(intena,a5)
 
     bsr wait_bof
     
-    bsr draw_score
+    bsr draw_score_and_player_title
 
     ; for debug
     ;;bsr draw_bounds
@@ -1081,7 +1072,13 @@ clear_scores
     dbf d3,.loop
     rts
     
-; draw score with titles and extra 0
+draw_score_and_player_title
+	moveq	#1,d0
+	bsr	draw_player_title
+	bsr	draw_score
+	rts
+	
+; draw score with highscore title and extra 0
 draw_score:
 	move.l	current_player(pc),a4
 	IFND	ARCADE_SCREEN_LAYOUT
@@ -1131,14 +1128,10 @@ draw_high_score
     move.w  yellow_color(pc),d4    
     bra write_color_decimal_number	
 	
-	
+
     ELSE
 
-    lea p1_string(pc),a0
-    move.w  #24+16,d0
-    move.w  #-24,d1
-    move.w  white_color(pc),d2
-    bsr write_color_string
+; arcade layout
 
     lea high_score_string(pc),a0
     move.w  #72+16,d0
@@ -1180,18 +1173,26 @@ draw_high_score
 	
     ENDC
 
-    
-;init_scroll_mask_sprite
-;	lea	scroll_mask_sprite,a1
-;	move.w	#X_MAX-16,d0
-;	move.w	#100,d1	; doesn't matter
-;	bsr		store_sprite_pos
-;	move.w	d0,(2,a1)
-;	swap	d0
-;	move.w	d0,(6,a1)
-;	
-;	
-;	rts
+; < D0: 0 clear, 1 draw
+
+draw_player_title
+	move.b	d0,d2
+    lea p1_string(pc),a0
+    move.w  #24+16,d0
+	
+	tst.b	is_player_two(a4)
+	beq.b	.player_1
+    lea p2_string(pc),a0
+    move.w  #108+16,d0		; TODO	
+.player_1
+	tst.b	d2
+	bne.b	.draw
+	lea	pc_string(pc),a0	; erase
+.draw
+    move.w  #-24,d1
+    move.w  white_color(pc),d2
+    bra write_blanked_color_string
+
 	
 	
 stars_palette_size = (end_stars_palette-stars_palette)
@@ -1716,6 +1717,7 @@ PLAYER_ONE_Y = 102-14
 	bsr	draw_explosions
 	
 	move.l	current_player(pc),a4
+
 	move.w	level_number(a4),d0
 	add.w	d0,d0
 	add.w	d0,d0
@@ -1723,7 +1725,13 @@ PLAYER_ONE_Y = 102-14
 	move.l	(a0,d0.w),a0
 	jsr		(a0)
 
-
+	move.b	draw_player_title_message(pc),d0
+	beq.b	.nothing
+	cmp.b	#1,d0
+	seq		d0
+	clr.b	draw_player_title_message
+	bsr	draw_player_title
+.nothing
 	bsr	draw_score
 	tst.b	update_fuel_message
 	beq.b	.no_fuel_draw
@@ -2072,20 +2080,18 @@ draw_start_screen
     lea menu_palette,a0
 	move.w	#8,d0		; 8 colors
 	bsr		load_palette		
-	
-    bsr draw_title
-    
+	bsr		draw_score_and_player_title
 	
     lea .psb_string(pc),a0
     move.w  #48,d0
     move.w  #96,d1
-    move.w  #$0dd,d2
+    move.w  yellow_color(pc),d2
     bsr write_color_string
     
     lea .opo_string(pc),a0
-    move.w  #48+16,d0
+    move.w  #48,d0
     move.w  #116,d1
-    move.w  #$FFF,d2
+    move.w  white_color(pc),d2
 	
     bsr write_color_string
     lea .bp1_string(pc),a0
@@ -2100,7 +2106,7 @@ draw_start_screen
 .psb_string
     dc.b    "PUSH START BUTTON",0
 .opo_string:
-    dc.b    "1 PLAYER ONLY",0
+    dc.b    "ONE OR TWO PLAYERS",0
 .bp1_string
     dc.b    "BONUS JET  FOR 10000 PTS",0
 
@@ -2127,7 +2133,7 @@ draw_intro_screen
 	
 	bsr	load_menu_palette
 	
-    bsr draw_score
+    bsr draw_score_and_player_title
     
 
         
@@ -2153,7 +2159,7 @@ draw_intro_screen
     rts
 .init2
     bsr clear_screen
-    bsr draw_score
+    bsr draw_score_and_player_title
     ; high scores
     
     move.w  #40,d0
@@ -2193,7 +2199,7 @@ draw_intro_screen
 .init3
 	
     bsr clear_screen
-	bsr	draw_score
+	bsr	draw_score_and_player_title
     ; characters
     move.w  #56,d0
     move.w  #56-24,d1
@@ -3356,6 +3362,8 @@ update_all
     bsr.b	play_music
 	move.b	#2,play_start_music_message
 	st.b	display_player_one_message
+	; re-detect controllers just in case they were switched at this point
+	bsr		_detect_controller_types
 .no_play
 	move.w	start_music_countdown(pc),d0
 	subq.w	#1,d0
@@ -3375,7 +3383,8 @@ update_all
 	and.l	d2,d1
 	cmp.l	d1,d0
 	beq.b	.no_dir_change
-	eor.b	#$FF,one_button_control_option
+	move.l	current_player(pc),a0
+	eor.b	#$FF,one_button_control_option(a0)
 .no_dir_change
 .not_started
     rts
@@ -3472,6 +3481,18 @@ update_all
 	move.w	d0,delayed_fx_countdown
 .no_fx_pending
 
+	move.l	state_timer(pc),d0
+	move.l	d0,d1
+	and.l	#$F,d1
+	bne.b	.no_blink
+	moveq.b	#1,d1
+	btst	#5,d0		; one out of 2 blinks
+	beq.b	.wdm
+	moveq.b	#2,d1
+.wdm
+	move.b	d1,draw_player_title_message
+.no_blink
+
 	bsr	update_fuel_alarm
     bsr update_player
     tst.w   player_killed_timer
@@ -3550,7 +3571,7 @@ draw_mission_completed
 	bsr	draw_lives
 	bsr	draw_mission_flags
 	IFD	ARCADE_SCREEN_LAYOUT
-	bsr	draw_score
+	bsr	draw_score_and_player_title
 	ENDC
 	
 	; the palette of the text is correct (menu palette)
@@ -3770,7 +3791,8 @@ draw_scrolling_tiles
 	
 play_ambient_sound
 	moveq.w	#1,d0
-	cmp.w	#1,level_number
+	move.l	current_player(pc),a0
+	cmp.w	#1,level_number(a0)
 	bne.b	.no_special_sound_loop
 	moveq.w	#2,d0
 .no_special_sound_loop
@@ -4395,7 +4417,8 @@ update_player
 	btst	#JPB_BTN_BLU,d0
 	beq.b	.no_demo_end
 	; demo ended with "blue" => sets 2-button control
-	clr.b	one_button_control_option
+	move.l	current_player(pc),a0
+	clr.b	one_button_control_option(a0)
 .demo_end
 	bsr		set_game_over
 	st.b	fast_game_over_flag
@@ -4473,7 +4496,8 @@ update_player
 	btst	#JPB_BTN_RED,d1
 	bne.b	.no_fire
 	bsr.b	create_shot
-	tst.b	one_button_control_option
+	move.l	current_player(pc),a0
+	tst.b	one_button_control_option(a0)
 	beq.b	.no_fire
 	bset	#JPB_BTN_BLU,d0
 .no_fire
@@ -4835,6 +4859,8 @@ update_explosions:
 update_shots:
 	move.w	#MAX_NB_SHOTS-1,d7
 	lea	shots(pc),a4
+	move.l	current_player(pc),a1
+	move.w	level_number(a1),d5
 	lea		tile_type_table(pc),a1
 .loop	
 	tst.b	active(a4)
@@ -4859,7 +4885,7 @@ update_shots:
 	; shot disables on scenery or targets
 	bra.b	.stop
 .try_enemies
-	cmp.w	#2,level_number
+	cmp.w	#2,d5
 	beq.b	.no_update	; no effect on fireballs
 	; see if the shot collides with an active 16x16 enemy
 	move.w	d3,d0
@@ -5107,6 +5133,8 @@ remove_object
 
 update_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
+	move.l	current_player(pc),a1
+	move.w	level_number(a1),d5
 	lea		tile_type_table(pc),a1
 	lea	bombs(pc),a4
 .loop	
@@ -5160,7 +5188,7 @@ update_bombs:
 
 	bra.b	.stop
 .try_enemies
-	cmp.w	#2,level_number
+	cmp.w	#2,d5
 	beq.b	.no_update
 
 	; see if the shot collides with an active 16x16 enemy
@@ -7071,6 +7099,8 @@ enemy_hitbox_x_len:
 	dc.w	0
 enemy_hitbox_y_len:
 	dc.w	0
+draw_player_title_message:
+	dc.b	0
 play_start_music_message:
 	dc.b	0
 display_player_one_message
@@ -7261,8 +7291,12 @@ high_score_string
 	ELSE
     dc.b    "HIGH",0
 	ENDC
+pc_string
+	dc.b	"   ",0
 p1_string
     dc.b    "1UP",0
+p2_string
+    dc.b    "2UP",0
 score_string
     dc.b    "     00",0
 game_over_string

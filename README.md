@@ -72,8 +72,10 @@ MINOR ISSUES:
 - flashing 1UP/2UP
 - colors wrong in title
 - no copyright in "score table"
-- no scores in score table
+- no scores displayed for enemies in score table
 - player one game over => player xxx game over
+- no sound UFO ambient
+- can shoot asteroids
 
 BUILDING FROM SOURCES:
 
