@@ -583,7 +583,7 @@ intro:
     bne.b   .wait_fire_release
 .no_credit
 	move.b	#1,play_start_music_message
-	clr.b	display_player_one_message
+	clr.b	display_player_one_or_two_message
 	
 	move.w	#1,start_music_countdown	; default: no wait (demo mode / moves record)
 	IFND		RECORD_INPUT_TABLE_SIZE
@@ -1680,11 +1680,11 @@ PLAYER_ONE_Y = 102-14
 .player_first_life
 	tst.b	game_started_flag
 	bne.b	.main_game_draw
-	tst.b	display_player_one_message
-	beq.b	.no_play
-	clr.b	display_player_one_message
-	; set game palette
 .draw_current_player
+	tst.b	display_player_one_or_two_message
+	beq.b	.no_play
+	clr.b	display_player_one_or_two_message
+	; set game palette
 	
 	bsr		load_game_palette
 
@@ -2269,9 +2269,7 @@ draw_intro_screen
 	; one color difference to be able to display enemies with
 	; accurate palette, since all enemies require 9 colors
 
-    lea objects_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette	
+	bsr		load_game_palette
 
 	lea	objects_palette(pc),a0
     lea _custom+color+16,a1	; second playfield
@@ -2358,6 +2356,7 @@ draw_intro_screen
     move.b  (a1)+,(a0)
     clr.b   (a1)    ; ack
     move.w  white_color(pc),d2
+	LOGPC	100
     bsr write_color_string
 .nothing_to_print
     rts
@@ -3458,7 +3457,6 @@ update_all
 	beq.b	.no_cst
 	subq.w	#1,d0
 	move.w	d0,player_change_screen_timer
-	move.w	#2*ORIGINAL_TICKS_PER_SEC,d0
 	beq.b	.play
 	rts
 .no_cst
@@ -3476,7 +3474,7 @@ update_all
     bsr.b	play_music
 	move.b	#2,play_start_music_message
 
-	st.b	display_player_one_message
+	st.b	display_player_one_or_two_message
 	; re-detect controllers just in case they were switched at this point
 	bsr		_detect_controller_types
 .no_play
@@ -4471,7 +4469,8 @@ update_player
 	tst.b	nb_lives(a0)
 	beq.b	.no_player_change		; no switch, no lives for other player
 	move.l	a0,current_player
-	move.w	#ORIGINAL_TICKS_PER_SEC*3,player_change_screen_timer
+	move.w	#ORIGINAL_TICKS_PER_SEC*2,player_change_screen_timer
+	st.b	display_player_one_or_two_message
 .no_player_change
 	st.b	draw_level_init_message
 	move.w  #STATE_LIFE_LOST,current_state
@@ -6236,33 +6235,35 @@ blit_plane_any_internal:
 ; trashes: a2,a3,a4
 
 blit_plane_any_internal_cookie_cut:
-    movem.l d0-d7,-(a7)
+    movem.l d0-d6,-(a7)
     ; pre-compute the maximum of shit here
     lea mul40_table(pc),a4
     swap    d1
     clr.w   d1
     swap    d1
     add.w   d1,d1
-    move.w  d1,d6   ; save it
     beq.b   .d1_zero    ; optim
     move.w  (a4,d1.w),d1
+    add.l   d1,a2       ; Y maze plane position
+	
 .d1_zero
     move.l  #$0fca0000,d5    ;B+C-A->D cookie cut   
 
-    move    d0,d7
+    move    d0,d6
     beq.b   .d0_zero
-    and.w   #$F,d7
     and.w   #$1F0,d0
     lsr.w   #3,d0
+    and.w   #$F,d6
+	beq.b	.no_shifting
 
-    lsl.l   #8,d7
-    lsl.l   #4,d7
-    or.w    d7,d5            ; add shift to mask (bltcon1)
-    swap    d7
-    clr.w   d7
-    or.l    d7,d5            ; add shift
-    
-    move.w  d0,d7
+    lsl.l   #8,d6
+    lsl.l   #4,d6
+    or.w    d6,d5            ; add shift to mask (bltcon1)
+    swap    d6
+    clr.w   d6
+    or.l    d6,d5            ; add shift
+.no_shifting    
+    move.w  d0,d6
     add.w   d0,d1
     
 .d0_zero
@@ -6271,13 +6272,8 @@ blit_plane_any_internal_cookie_cut:
     bclr    #0,d1
     add.l   d1,a1       ; plane position (long: allow unsigned D1)
 
-    ; a4 is a multiplication table
-    ;;beq.b   .d1_zero    ; optim
-    move.w  (a4,d6.w),d1
-    add.w   d7,a2       ; X
-;;.d1_zero    
-    ; compute offset for maze plane
-    add.l   d1,a2       ; Y maze plane position
+    add.w   d6,a2       ; X
+
 
 	move.w #NB_BYTES_PER_LINE,d0
 
@@ -6308,7 +6304,7 @@ blit_plane_any_internal_cookie_cut:
 	move.l a1,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
     
-    movem.l (a7)+,d0-d7
+    movem.l (a7)+,d0-d6
     rts
 
 
@@ -7199,7 +7195,7 @@ draw_level_init_message:
 	dc.b	0
 play_start_music_message:
 	dc.b	0
-display_player_one_message
+display_player_one_or_two_message
 	dc.b	0
 draw_tile_column_message
 	dc.b	0
