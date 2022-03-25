@@ -74,6 +74,8 @@ MINOR ISSUES:
 - test: give 3 lives to player 2, 1 life to p1 see if partial game over works
 - game over state is set only if both players die, move game over screen into "playing" state
 - always add one life on "player one"/two screen
+- fireball stage fireballs are flickering on some configs
+- bogus p1 score if direct start mode
 
 BUILDING FROM SOURCES:
 

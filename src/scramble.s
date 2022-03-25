@@ -90,7 +90,7 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
@@ -527,6 +527,8 @@ intro:
     
     IFD DIRECT_GAME_START
 	move.w	#1,cheat_keys	; enable cheat in that mode, we need to test the game
+	st.b	game_started_flag
+	st.b	draw_level_init_message
     bra.b   .restart
     ENDC
 
@@ -1166,11 +1168,9 @@ draw_high_score
     bra     draw_high_score    
 
 ; < A4: player structure
-
 ; trashes D0-D3
 draw_current_score:
     move.l  score(a4),d2
-
     move.w  #16,d0
 	tst.b	is_player_two(a4)
 	beq.b	.p1
@@ -1739,6 +1739,7 @@ PLAYER_ONE_Y = 102-14
 	bsr	draw_mission_flags
 	move.w	#$EE0,d0
     bsr draw_fuel_with_text
+	bsr	draw_score_and_player_title
 	IFND	SCROLL_DEBUG
 	bsr	draw_level_map
 	bsr	draw_current_level
@@ -1799,7 +1800,7 @@ PLAYER_ONE_Y = 102-14
 	move.b	is_player_two(a4),d1
 	bsr	draw_player_title
 .nothing
-	bsr	draw_score
+	bsr	draw_current_score
 	tst.b	update_fuel_message
 	beq.b	.no_fuel_draw
 	bsr		draw_fuel
@@ -3016,6 +3017,10 @@ init_interrupts
     move.l  a1,($c,a0)
     lea   exc10(pc),a1
     move.l  a1,($10,a0)
+    lea   exc28(pc),a1
+    move.l  a1,($28,a0)
+    lea   exc2f(pc),a1
+    move.l  a1,($2c,a0)
     
     lea level2_interrupt(pc),a1
     move.l  a1,($68,a0)
@@ -3030,36 +3035,60 @@ exc8
     lea .bus_error(pc),a0
     bra.b lockup
 .bus_error:
-    dc.b    "BUS ERROR AT",0
+    dc.b    "BUS ERROR AT ",0
     even
 excc
+    lea .address_error(pc),a0
+    bra.b lockup
+.address_error:
+    dc.b    "ADDRESS ERROR AT ",0
+    even
+exc28
     lea .linea_error(pc),a0
     bra.b lockup
 .linea_error:
-    dc.b    "LINEA ERROR AT",0
+    dc.b    "LINEA ERROR AT ",0
+    even
+exc2f
+    lea .linef_error(pc),a0
+    bra.b lockup
+.linef_error:
+    dc.b    "LINEF ERROR AT ",0
     even
 
 exc10
     lea .illegal_error(pc),a0
     bra.b lockup
 .illegal_error:
-    dc.b    "ILLEGAL INSTRUCTION AT",0
+    dc.b    "ILLEGAL INSTRUCTION AT ",0
     even
 
 lockup
+	lea	screen_data,a1
+	moveq.w	#3,d3
+.cploop
+	clr.l	D0
+	clr.l	D1
+	move.w	#38,d2
+	bsr	clear_plane_any_blitter
+	add.w	#SCREEN_PLANE_SIZE,a1
+	dbf		d3,.cploop
+	bsr	wait_blit
     move.l  (2,a7),d3
     move.w  white_color(pc),d2
-    move.w   #16,d0
-    clr.w   d1
+    move.w  #16,d0
+    move.w  #-24,d1
     bsr write_color_string
 
-    lsl.w   #3,d0
+    lsl.w	#3,d0
+	add.w	#16,d0
     lea screen_data,a1
     move.l  d3,d2
     moveq.w #8,d3
     bsr write_hexadecimal_number    
 .lockup
     bra.b   .lockup
+	
 finalize_sound
     bsr stop_sounds
     ; assuming VBR at 0
@@ -4090,11 +4119,8 @@ update_rockets
 		
 
 check_collisions
-	
-	move.w	ypos(a3),d0
-	
-	clr.w	d0
     move.l	current_player(pc),a3
+
 	; testing 2 tiles on ship only, let's see how it goes
 	; front
     move.w  xpos(a3),d2
