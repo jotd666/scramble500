@@ -75,7 +75,8 @@ MINOR ISSUES:
 - game over state is set only if both players die, move game over screen into "playing" state
 - always add one life on "player one"/two screen
 - fireball stage fireballs are flickering on some configs
-- bogus p1 score if direct start mode
+- complete level 6: base not completely cleared (missing 1 plane???)
+- game over state: remove it, show game over in "playing" mode
 
 BUILDING FROM SOURCES:
 

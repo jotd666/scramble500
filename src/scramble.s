@@ -98,7 +98,7 @@ DIRECT_GAME_START
 
 ;START_NB_LIVES = 1
 ;START_SCORE = 525670/10
-;START_LEVEL = 6
+START_LEVEL = 3
 ;START_FUEL = 40
 ; no destructions, can bomb object forever if set
 ;BOMB_TEST_MODE
@@ -673,6 +673,7 @@ intro:
 	addq.w	#1,nb_missions_completed(a4)
 	; restart at level 1
 	clr.w	level_number(a4)
+	st.b	draw_level_init_message
 	bsr	update_level_set_data
 	bsr	play_ambient_sound
 
@@ -1800,7 +1801,6 @@ PLAYER_ONE_Y = 102-14
 	move.b	is_player_two(a4),d1
 	bsr	draw_player_title
 .nothing
-	bsr	draw_current_score
 	tst.b	update_fuel_message
 	beq.b	.no_fuel_draw
 	bsr		draw_fuel
@@ -4805,7 +4805,18 @@ create_ufo:
 	
 create_fireball:
 	movem.l	d0/d7/a4,-(a7)
+	; change random slightly and make it more random
+	; else if ship is at Y=50
+	; fireballs never hit it
+	;
+	; taking a modulo of a random 32 bit value
+	; weakens the randomness. In most cases it doesn't
+	; matter but here it's a problem
+	
 	bsr		random
+	move.l	d0,d1	
+	swap	d1		
+	eor.b	d1,d0	
 	and.w	#$7F,d0
 	; not too low, else the fireballs will cross the highest
 	; mountain edges and game becomes unfair!
@@ -4992,7 +5003,7 @@ update_shots:
 	bmi.b	.no_update
 	move.w	xpos(a4),d0
 	add.w	#SHOT_SPEED,d0
-	cmp.w	#X_MAX-24,d0
+	cmp.w	#X_MAX-8,d0
 	bcc.b	.stop
 	move.w	d0,xpos(a4)
 	; test if hitting something (scenery)
@@ -5258,7 +5269,7 @@ remove_object
 update_bombs:
 	move.w	#MAX_NB_BOMBS-1,d7
 	move.l	current_player(pc),a1
-	move.w	level_number(a1),d5
+	move.w	level_number(a1),d6
 	lea		tile_type_table(pc),a1
 	lea	bombs(pc),a4
 .loop	
@@ -5312,9 +5323,8 @@ update_bombs:
 
 	bra.b	.stop
 .try_enemies
-	cmp.w	#2,d5
+	cmp.w	#2,d6
 	beq.b	.no_update
-
 	; see if the shot collides with an active 16x16 enemy
 	move.w	d3,d0
 	move.w	d4,d1
