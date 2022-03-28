@@ -66,17 +66,14 @@ MINOR ISSUES:
 
 - level 4/5 filler bricks are inverted (brick then square) in the bottom section
   or is it the odd/even tile pattern? well, not a big issue
-- player one game over => player xxx game over, don't quit, just set a game over message
-  before "PLAYER xx" when resuming if needed
+- fireball stage fireballs are flickering on some configs (maybe ok now)
+- fireballs/ship collisions are not working that well
 - trashed scores, in 2P mode, missing other UP when playing
 - if dies at level 2, other player resumes at level 1 without stars on!
-- careful of start music seems broken since 2P mode 
 - test: give 3 lives to player 2, 1 life to p1 see if partial game over works
-- game over state is set only if both players die, move game over screen into "playing" state
 - always add one life on "player one"/two screen
-- fireball stage fireballs are flickering on some configs
 - complete level 6: base not completely cleared (missing 1 plane???)
-- game over state: remove it, show game over in "playing" mode
+- 2 player mode completely broken lifes are wrongly decreased so is game over
 
 BUILDING FROM SOURCES:
 

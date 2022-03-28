@@ -90,13 +90,13 @@ Execbase  = 4
 ;SCROLL_DEBUG
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ;X_SHIP_START = 57
 ;Y_SHIP_START = 99
 ;HIGHSCORES_TEST
 
-;START_NB_LIVES = 1
+START_NB_LIVES = 2
 ;START_SCORE = 525670/10
 START_LEVEL = 3
 ;START_FUEL = 40
@@ -635,6 +635,9 @@ intro:
     moveq.l #0,d0
     bra.b   .from_level_start
 .new_life
+	bsr		next_player
+	; at this point check that current player still has lives, else it's
+	; direct game over
     moveq.l #1,d0
 .from_level_start
     move.b  d0,new_life_restart ; used by init player
@@ -678,6 +681,7 @@ intro:
 	bsr	play_ambient_sound
 
     bra.b   .new_mission
+	; current player loses a life
 .life_lost
     IFD    RECORD_INPUT_TABLE_SIZE
     lea record_input_table,a0
@@ -690,7 +694,6 @@ intro:
     beq.b   .no_demo
     ; lose one life in demo mode: return to intro
 	bsr		set_game_over
-	st.b	fast_game_over_flag
     bra.b   .game_over
 .no_demo
 	move.l	current_player(pc),a4
@@ -700,11 +703,10 @@ intro:
     subq.b   #1,nb_lives(a4)
     bne.b   .new_life
 
-    ; game over: check if score is high enough 
+    ; game over for current player: check if score is high enough 
     ; to be inserted in high score table
     move.l  score(a4),d0
     lea     hiscore_table(pc),a0
-	move.l	a0,$110
     moveq.w  #NB_HIGH_SCORES-1,d1
     move.w   #-1,high_score_position
 .hiloop
@@ -751,12 +753,11 @@ intro:
     bne.b   .no_save
     bsr     save_highscores
 .no_save
-	; TODO check if other player still has lives
-	; else game over for current player only
-	
+
     ; 3 seconds
-    bsr		set_game_over
-    bra.b   .game_over
+    bsr		set_game_over_for_current_player
+	bsr		next_player
+    bra.b   .mainloop
 .out      
     ; quit
     tst.l   _resload
@@ -795,6 +796,32 @@ intro:
     moveq.l #0,d0
     rts
 
+; what: switches player if the other player still has lives
+; else keeps on with same player, without "player xxx" screen (direct play)
+
+next_player:
+	; tell the game to redraw the level
+	; we switch players if 2 player mode
+	tst.b	two_player_game
+	beq.b	.no_player_change
+	lea		player_1,a0
+	move.l	current_player(pc),d1
+	cmp.l	a0,d1
+	bne.b	.set_p
+	lea		player_2,a0
+.set_p
+	tst.b	nb_lives(a0)
+	beq.b	.only_one_left		; no switch, no lives for other player
+	move.l	a0,current_player
+	move.w	#ORIGINAL_TICKS_PER_SEC*2,player_change_screen_timer
+	st.b	display_player_one_or_two_message
+.no_player_change
+	st.b	draw_level_init_message
+	rts
+.only_one_left:
+	clr.b	two_player_game
+	bra.b	.no_player_change
+	
 init_bitplanes_copperlist:
     moveq #NB_PLANES-1,d4
     lea	bitplanes,a0              ; copperlist address
@@ -827,10 +854,15 @@ init_bitplanes_copperlist:
     dbf d4,.mkcl
 	rts
 
+set_game_over_for_current_player
+	move.w	#STATE_PLAYING,current_state	; reset from life lost state
+
+	move.w	#GAME_OVER_TIMER,player_game_over_screen_timer
+	st.b	draw_game_over_message
+	rts
+	
 set_game_over:
-	clr.b	fast_game_over_flag
     move.w  #STATE_GAME_OVER,current_state
-    move.l  #GAME_OVER_TIMER,state_timer
 	rts
 
 load_menu_palette	
@@ -1009,6 +1041,7 @@ update_level_data:
 	dc.w	0,0	; no enemies
 init_new_play:
 	clr.w	player_change_screen_timer
+	clr.w	player_game_over_screen_timer
 	move.l	current_player(pc),a4
 	clr.w	nb_missions_completed(a4)
     move.b  #START_NB_LIVES,nb_lives(a4)
@@ -1021,12 +1054,13 @@ init_new_play:
 	bsr		play_ambient_sound
 	ENDC
  
-	bsr		update_level_set_data
 	
     ; global init at game start
 	
 	tst.b	demo_mode
 	beq.b	.no_demo
+	; in demo mode, no player start screen, update level set at once
+	bsr		update_level_set_data	
 	; toggle demo
 	move.w	#START_LEVEL-1,level_number(a4)
 	btst	#0,d0
@@ -1650,11 +1684,7 @@ PLAYER_ONE_Y = 102-14
 
     
 .game_over
-	tst.b	fast_game_over_flag
-    bne.b   .draw_complete		; don't draw anything (ESC pressed, demo ended)
-
-    cmp.l   #GAME_OVER_TIMER,state_timer
-    bne.b   .draw_complete
+	clr.b	draw_game_over_message	; ack draw message
     bsr clear_playfield_planes
 	; re-set stars if was off
 	bsr		init_stars
@@ -1663,7 +1693,12 @@ PLAYER_ONE_Y = 102-14
     move.w  #72,d0
     move.w  #136,d1
     move.w  white_color(pc),d2
+	move.l	current_player(pc),a1
     lea player_one_string(pc),a0
+	tst.b	is_player_two(a1)
+	beq.b	.p1
+    lea player_two_string(pc),a0
+.p1	
     bsr write_color_string
     move.w  #72,d0
     add.w   #16,d1
@@ -1675,6 +1710,12 @@ PLAYER_ONE_Y = 102-14
 	tst.b	demo_mode
 	bne.b	.main_game_draw
 	
+	tst.b	draw_game_over_message
+	bne.b	.game_over
+	tst.w	player_game_over_screen_timer
+	beq.b	.no_game_over
+	rts
+.no_game_over	
 	tst.w	player_change_screen_timer
 	bne.b	.draw_current_player
 	
@@ -3185,7 +3226,6 @@ level2_interrupt:
     cmp.w   #STATE_GAME_START_SCREEN,current_state
     beq.b   .no_esc
     bsr		set_game_over
-	st.b	fast_game_over_flag
 .no_esc
     
     cmp.w   #STATE_PLAYING,current_state
@@ -3464,29 +3504,40 @@ update_all
     rts
      
 .game_over
-    cmp.l   #GAME_OVER_TIMER,state_timer
-    bne.b   .no_first
-    bsr stop_sounds
-.no_first
-    tst.l   state_timer
-    bne.b   .cont
     bsr stop_sounds
     move.w  #STATE_INTRO_SCREEN,current_state
 .cont
-	tst.b	fast_game_over_flag
-	beq.b	.normal
-	clr.l	state_timer
-	rts
-.normal
-    subq.l  #1,state_timer
     rts
     ; update
 .playing
+	move.w	player_game_over_screen_timer(pc),d0
+	beq.b	.no_gost
+	subq.w	#1,d0
+	move.w	d0,player_game_over_screen_timer
+	bne.b	.keep_playing
+	; game over timer reached
+	; is other player also dead?
+	lea		player_1(pc),a0
+	tst.b	nb_lives(a0)
+	bne.b	.out
+	lea		player_2(pc),a0
+	tst.b	nb_lives(a0)
+	bne.b	.keep_playing
+	; both players dead: quit
+	bra	set_game_over
+.keep_playing
+	rts
+.no_gost
 	move.w	player_change_screen_timer(pc),d0
 	beq.b	.no_cst
 	subq.w	#1,d0
 	move.w	d0,player_change_screen_timer
-	beq.b	.play
+	bne.b	.do_nothing
+	; update level set data now
+	bsr		update_level_set_data
+	bra.b	.play
+	; wait for get ready screen
+.do_nothing
 	rts
 .no_cst
 
@@ -4481,27 +4532,10 @@ update_player
 	lsr.w	#4,d0
 	move.w	d0,death_frame_offset   ; 0,1,2,3
     rts
+
 .restart_level
-	; tell the game to redraw the level
-	; we switch players if 2 player mode
-	tst.b	two_player_game
-	beq.b	.no_player_change
-	lea		player_1(pc),a0
-	move.l	current_player(pc),d1
-	cmp.l	a0,d1
-	bne.b	.set_p
-	lea		player_2(pc),a0
-.set_p
-	tst.b	nb_lives(a0)
-	beq.b	.no_player_change		; no switch, no lives for other player
-	move.l	a0,current_player
-	move.w	#ORIGINAL_TICKS_PER_SEC*2,player_change_screen_timer
-	st.b	display_player_one_or_two_message
-.no_player_change
-	st.b	draw_level_init_message
 	move.w  #STATE_LIFE_LOST,current_state
 	rts
-
 	
 .alive
 	move.b	fuel_depetion_current_timer(pc),d0
@@ -4545,7 +4579,6 @@ update_player
 	clr.b	one_button_control_option(a0)
 .demo_end
 	bsr		set_game_over
-	st.b	fast_game_over_flag
 	
     clr.b   demo_mode
 	clr.b	game_started_flag
@@ -7157,6 +7190,9 @@ intro_text_message:
 player_change_screen_timer
 	dc.w	0
 
+player_game_over_screen_timer
+	dc.w	0
+
 player_killed_timer:
     dc.w    -1
 bonus_score_timer:
@@ -7227,6 +7263,8 @@ enemy_hitbox_y_len:
 	dc.w	0
 draw_player_title_message:
 	dc.b	0
+draw_game_over_message:
+	dc.b	0
 draw_level_init_message:
 	dc.b	0
 play_start_music_message:
@@ -7244,8 +7282,6 @@ fuel_depetion_current_timer:
 update_fuel_message:
 	dc.b	0
 alive_timer
-	dc.b	0
-fast_game_over_flag:
 	dc.b	0
 rockets_fly_flag:
 	dc.b	0
