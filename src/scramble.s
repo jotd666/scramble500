@@ -96,9 +96,9 @@ Execbase  = 4
 ;Y_SHIP_START = 99
 ;HIGHSCORES_TEST
 
-START_NB_LIVES = 2
+;START_NB_LIVES = 2
 ;START_SCORE = 525670/10
-START_LEVEL = 3
+;START_LEVEL = 3
 ;START_FUEL = 40
 ; no destructions, can bomb object forever if set
 ;BOMB_TEST_MODE
@@ -495,6 +495,8 @@ BPLMOD = $A		; bplmod needs to be altered too
     move.w #BPLMOD,bpl1mod(a5)                ; one of ross' magic value so the screen is centered
 
 intro:
+	move.w	#STATE_INTRO_SCREEN,current_state
+	
     lea _custom,a5
     clr.w bplcon1_value                   ; reset scrolling shift to 0 in copperlist
     move.w #BPLMOD,bpl2mod(a5)                ; modulo of 2nd playfield, one of ross' magic value 
@@ -637,7 +639,12 @@ intro:
 .new_life
 	bsr		next_player
 	; at this point check that current player still has lives, else it's
-	; direct game over
+	; direct game over (well, direct jump to the intro)
+	move.l	current_player(pc),a0
+	tst.b	nb_lives(a0)
+	bpl.b	.still_lives
+	bra.b	intro
+.still_lives
     moveq.l #1,d0
 .from_level_start
     move.b  d0,new_life_restart ; used by init player
@@ -756,7 +763,6 @@ intro:
 
     ; 3 seconds
     bsr		set_game_over_for_current_player
-	bsr		next_player
     bra.b   .mainloop
 .out      
     ; quit
@@ -1839,6 +1845,7 @@ PLAYER_ONE_Y = 102-14
 	cmp.b	#1,d0
 	seq		d0
 	clr.b	draw_player_title_message
+	move.l	current_player(pc),a4
 	move.b	is_player_two(a4),d1
 	bsr	draw_player_title
 .nothing
