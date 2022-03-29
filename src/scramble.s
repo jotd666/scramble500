@@ -54,7 +54,7 @@ INTERRUPTS_ON_MASK = $E038
 	UBYTE	nb_lives
 	UBYTE	one_button_control_option
 	UBYTE	is_player_two
-	UBYTE	pad
+	UBYTE	first_life
     LABEL   Player_SIZEOF
     
 	STRUCTURE	GfxObject,0
@@ -153,7 +153,6 @@ NB_TICKS_PER_SEC = 50
 ; game logic ticks
 ORIGINAL_TICKS_PER_SEC = 60
 
-ARCADE_SCREEN_LAYOUT
 
 	IFND	INTRO_TICKS_PER_SEC
 INTRO_TICKS_PER_SEC = ORIGINAL_TICKS_PER_SEC
@@ -495,6 +494,8 @@ BPLMOD = $A		; bplmod needs to be altered too
     move.w #BPLMOD,bpl1mod(a5)                ; one of ross' magic value so the screen is centered
 
 intro:
+	move.l #screen_data,$100	; TEMP
+	
 	move.w	#STATE_INTRO_SCREEN,current_state
 	
     lea _custom,a5
@@ -606,6 +607,9 @@ intro:
 
 	move.l	#player_1,current_player    
     bsr init_new_play
+	
+	move.l	current_player(pc),a4
+;;	move.b	#1,nb_lives(a4)		; to test 2-player game over behaviour
 	tst.b	two_player_game
 	beq.b	.new_mission
 	move.l	#player_2,current_player
@@ -643,6 +647,7 @@ intro:
 	move.l	current_player(pc),a0
 	tst.b	nb_lives(a0)
 	bpl.b	.still_lives
+	bsr		stop_sounds
 	bra.b	intro
 .still_lives
     moveq.l #1,d0
@@ -707,6 +712,7 @@ intro:
    
     tst.b   infinite_lives_cheat_flag
     bne.b   .new_life
+	clr.b	first_life(a4)
     subq.b   #1,nb_lives(a4)
     bne.b   .new_life
 
@@ -817,7 +823,7 @@ next_player:
 	lea		player_2,a0
 .set_p
 	tst.b	nb_lives(a0)
-	beq.b	.only_one_left		; no switch, no lives for other player
+	bmi.b	.only_one_left		; no switch, no lives for other player
 	move.l	a0,current_player
 	move.w	#ORIGINAL_TICKS_PER_SEC*2,player_change_screen_timer
 	st.b	display_player_one_or_two_message
@@ -979,7 +985,7 @@ clear_scroll_plane
     movem.l (a7)+,d0/a1
     rts
 
-update_level_set_data	
+update_level_set_data
 	move.l	current_player(pc),a4
 	move.w	#10,d1
 	move.w	nb_missions_completed(a4),d0
@@ -1050,6 +1056,7 @@ init_new_play:
 	clr.w	player_game_over_screen_timer
 	move.l	current_player(pc),a4
 	clr.w	nb_missions_completed(a4)
+	st.b	first_life(a4)
     move.b  #START_NB_LIVES,nb_lives(a4)
     clr.b   new_life_restart
     clr.b   extra_life_awarded
@@ -1062,11 +1069,12 @@ init_new_play:
  
 	
     ; global init at game start
+	; will be done when players are switched too
+	bsr		update_level_set_data	
 	
 	tst.b	demo_mode
 	beq.b	.no_demo
 	; in demo mode, no player start screen, update level set at once
-	bsr		update_level_set_data	
 	; toggle demo
 	move.w	#START_LEVEL-1,level_number(a4)
 	btst	#0,d0
@@ -1109,69 +1117,18 @@ draw_score_and_player_title
 	moveq	#1,d0
 	clr		d1
 	bsr	draw_player_title
-	tst.b	two_player_game
-	beq.b	.one_player
+
+	tst.b	nb_lives+player_2
+	bmi.b	.one_player
 	moveq	#1,d0
 	st		d1
 	bsr	draw_player_title
 .one_player	
-	bsr	draw_score
-	rts
+	bra	draw_score
 	
 ; draw score with highscore title and extra 0
 draw_score:
-	IFND	ARCADE_SCREEN_LAYOUT
-	move.l	current_player(pc),a4
-	; legacy compact score display at the bottom
-    lea p1_string(pc),a0
-    move.w  #24,d0
-    move.w  #Y_MAX-8,d1
-    move.w  white_color(pc),d2
-    bsr write_color_string
 
-    lea high_score_string(pc),a0
-    move.w  #136,d0
-    bsr write_color_string
-	
-	move.w	yellow_color(pc),d2
-    lea score_string(pc),a0
-    move.w  #48,d0
-    bsr write_color_string
-
-    ; extra 0
-    lea score_string(pc),a0
-    move.w  #128+24,d0
-    bsr write_color_string
-
-    move.l  score(a4),d2
-    bsr     draw_current_score
-
-
-    move.l  high_score(a4),d2
-    bsr     draw_high_score
-    
-	rts
-	
-; < D2 score
-; trashes D0-D3
-draw_current_score:
-    move.w  #56,d0
-    move.w  #Y_MAX-8,d1
-    move.w  #6,d3
-	move.w	yellow_color(pc),d4
-    bra write_color_decimal_number
-; < D2: highscore
-draw_high_score
-    move.w  #120+40,d0
-    move.w  #Y_MAX-8,d1
-    move.w  #6,d3
-    move.w  yellow_color(pc),d4    
-    bra write_color_decimal_number	
-	
-
-    ELSE
-
-; arcade layout
 
 	lea	player_1,a4
     lea high_score_string(pc),a0
@@ -1191,8 +1148,8 @@ draw_high_score
 
     bsr     draw_current_score
 
-	tst.b	two_player_game
-	beq.b	.1p
+	tst.b	player_2+nb_lives
+	bmi.b	.1p
 
     ; extra 0
     lea score_string(pc),a0
@@ -1229,7 +1186,6 @@ draw_high_score
     move.w  yellow_color(pc),d4    
     bra write_color_decimal_number	
 	
-    ENDC
 
 ; < D0.B: 0 clear, 1 draw
 ; < D1.B: 0 player 1, 1 player 2
@@ -1692,6 +1648,7 @@ PLAYER_ONE_Y = 102-14
 .game_over
 	clr.b	draw_game_over_message	; ack draw message
     bsr clear_playfield_planes
+	bsr	draw_score_and_player_title
 	; re-set stars if was off
 	bsr		init_stars
 	; color0: force to black
@@ -1739,7 +1696,7 @@ PLAYER_ONE_Y = 102-14
     bsr clear_screen
     bsr	clear_playfield_planes
 	bsr	draw_score_and_player_title
-		
+	
 	lea	player_one_string(pc),a0
 	cmp.l	#player_1,current_player
 	beq.b	.current_pl
@@ -1749,19 +1706,19 @@ PLAYER_ONE_Y = 102-14
 	move.w	#160-24,d1
     move.w  white_color(pc),d2
     bsr write_color_string
-	
+
 	; real number of remaining lives (plus the one in play)
 	bsr	draw_lives
 	bsr	draw_mission_flags
+	move.l	current_player(pc),a4
 	
-	tst.w	player_change_screen_timer
-	beq.b	.no_play
+	tst.b	first_life(a4)
+	bne.b	.no_play
 	rts		; don't allow to change controls during play
 	
 .no_play
 	; controller option (amiga specific)
 	lea	one_button_control_text(pc),a0
-	move.l	current_player(pc),a4
 	tst.b	one_button_control_option(a4)
 	bne.b	.select
 	lea	two_button_control_text(pc),a0	
@@ -1781,7 +1738,7 @@ PLAYER_ONE_Y = 102-14
     move.w #NB_BYTES_PER_SCROLL_SCREEN_LINE-NB_BYTES_PER_LINE+BPLMOD,bpl2mod(a5)
 	bsr	init_bitplanes_copperlist
     
-	bsr	draw_ground	
+	bsr	draw_ground
     bsr draw_lives
 	bsr	clear_mission_flags
 	bsr	draw_mission_flags
@@ -1936,11 +1893,7 @@ draw_tiles:
 	lea		tiles,a0
 	clr.w	(a4)	; zero coord: no rocket in the column by default
 	move.w	d0,d5	; save X-offset for later on
-	IFD		ARCADE_SCREEN_LAYOUT
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*40,a1	; 2nd playfield
-	ELSE
-	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a1	; 2nd playfield
-	ENDC
 	add.w	d5,a1		; add x offset
 
 	move.w	#16,d6	; current y	
@@ -2191,11 +2144,10 @@ random:
 
     
 draw_start_screen
+
     bsr clear_screen
     bsr	clear_playfield_planes
-    lea menu_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette		
+    bsr		load_menu_palette	
 	bsr		draw_score_and_player_title
 	
     lea .psb_string(pc),a0
@@ -2333,11 +2285,7 @@ draw_intro_screen
 	lea	screen_data,a1
 	move.w	#2,d3
 	move.w	#64,d0
-	IFD		ARCADE_SCREEN_LAYOUT
 	move.w	#74,d1
-	ELSE
-	move.w	#50,d1
-	ENDC
 .draw1
 	
     movem.l d0-d6/a0-a5,-(a7)
@@ -2356,11 +2304,7 @@ draw_intro_screen
 	move.w	#2,d3
 	move.w	#64,d0
 	move.w	#64,d0
-	IFD		ARCADE_SCREEN_LAYOUT
 	move.w	#146,d1
-	ELSE
-	move.w	#146-24,d1
-	ENDC
 .draw2
 	
     movem.l d0-d6/a0-a5,-(a7)
@@ -2766,10 +2710,7 @@ draw_level_map
 .lloop
 	move.w	#2,d5		; 3 planes
 	;;move.l	a2,a0	; next level pic
-	lea		screen_data,a1
-	IFD		ARCADE_SCREEN_LAYOUT
-	add.w	#24*NB_BYTES_PER_LINE,a1
-	ENDC
+	lea		screen_data+24*NB_BYTES_PER_LINE,a1
 .ploop
     movem.l d0-d6/a1-a4,-(a7)
     bsr blit_plane_any_internal
@@ -2794,10 +2735,7 @@ draw_current_level
     move.w  #8,d4      ; 8 pixels height
 .lloop
 	move.w	#2,d5		; 3 planes
-	lea		screen_data,a1
-	IFD		ARCADE_SCREEN_LAYOUT
-	add.w	#24*NB_BYTES_PER_LINE,a1
-	ENDC
+	lea		screen_data+24*NB_BYTES_PER_LINE,a1
 	lea		red_level_mark,a0
 	cmp.w	level_number(a4),d6
 	beq.b	.ploop
@@ -2815,11 +2753,8 @@ draw_current_level
 	dbf		d7,.lloop
 	rts
 	
-	IFND	ARCADE_SCREEN_LAYOUT
-FUEL_Y = Y_MAX
-	ELSE
+
 FUEL_Y = 240
-	ENDC
 	
 FUEL_OFFSET = FUEL_Y*NB_BYTES_PER_LINE+10
     
@@ -2876,11 +2811,8 @@ draw_fuel:
 fuel_text
 	dc.b	"FUEL",0
 	even
-	IFD	ARCADE_SCREEN_LAYOUT
 LIVES_OFFSET = 248*NB_BYTES_PER_LINE+2	
-	ELSE
-LIVES_OFFSET = 236*NB_BYTES_PER_LINE+2
-	ENDC
+
 	
 draw_last_life
 	move.l	current_player(pc),a4
@@ -2888,6 +2820,7 @@ draw_last_life
     bra.b   draw_the_lives
     
 draw_lives:
+	; remove all remaining lives
 	move.l	current_player(pc),a4
     moveq.w #NB_PLANES-1,d7
     lea	screen_data+LIVES_OFFSET,a1
@@ -2895,7 +2828,8 @@ draw_lives:
     moveq.l #0,d0
     moveq.l #0,d1
     move.l  #12,d2
-    bsr clear_plane_any_cpu
+	move.w  #8,d3
+    bsr clear_plane_any_cpu_any_height
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf d7,.cloop
     
@@ -3540,8 +3474,6 @@ update_all
 	subq.w	#1,d0
 	move.w	d0,player_change_screen_timer
 	bne.b	.do_nothing
-	; update level set data now
-	bsr		update_level_set_data
 	bra.b	.play
 	; wait for get ready screen
 .do_nothing
@@ -3571,6 +3503,9 @@ update_all
 .play
 	st.b	game_started_flag
 	st.b	draw_level_init_message
+	; update level set data now
+	bsr		update_level_set_data
+
 .out
 	move.w	d0,start_music_countdown
 
@@ -3738,9 +3673,7 @@ draw_mission_completed
 	bsr	draw_fuel_with_text
 	bsr	draw_lives
 	bsr	draw_mission_flags
-	IFD	ARCADE_SCREEN_LAYOUT
 	bsr	draw_score_and_player_title
-	ENDC
 	
 	; the palette of the text is correct (menu palette)
 	move.w	#56,d0
@@ -3820,11 +3753,7 @@ copy_tiles
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-2,d0
 	add.w	d1,d0
 	
-	IFD		ARCADE_SCREEN_LAYOUT
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*40,a2	; base
-	ELSE
-	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*16,a2	; base
-	ENDC
 	lea		(a2,d0.w),a0	; source
 	lea		(-2,a2,d1.w),a1	; dest
 	
@@ -5257,11 +5186,7 @@ remove_object
 	add.w	d2,a1
 
 	lea		mulNB_BYTES_PER_SCROLL_SCREEN_LINE_table(pc),a0
-	IFD		ARCADE_SCREEN_LAYOUT
 	add.w	#24+8,d1
-	ELSE
-	addq.w	#8,d1	; y shift (empiric)
-	ENDC
 	add.w	d1,d1
 	; add y offset
 	add.w	(a0,d1.w),a1
@@ -5629,9 +5554,7 @@ draw_explosions:
 .do_draw
 	move.w	xpos(a4),d3
 	move.w	ypos(a4),d4
-	IFD		ARCADE_SCREEN_LAYOUT
 	add.w	#24,d4
-	ENDC
     move.w d3,d0
     move.w d4,d1
     ; plane 0
@@ -5688,9 +5611,7 @@ draw_shots:
 .draw
 	move.w	xpos(a4),d2
 	move.w	ypos(a4),d3
-	IFD		ARCADE_SCREEN_LAYOUT
 	add.w	#24,d3
-	ENDC
     lea screen_data,a1
 	move.l	d2,d0
 	move.l	d3,d1
@@ -5809,9 +5730,7 @@ internal_blit_3_object_planes:
     lea screen_data,a1
 	move.w	xpos(a4),d3
 	move.w	ypos(a4),d4
-	IFD		ARCADE_SCREEN_LAYOUT
 	add.w	#24,d4
-	ENDC
     move.w d3,d0
     move.w d4,d1
     ; plane 0
@@ -5995,9 +5914,7 @@ draw_player:
 .shipblit
     move.w  xpos(a4),d3
     move.w  ypos(a4),d4
-	IFD		ARCADE_SCREEN_LAYOUT
 	add.w	#24,d4
-	ENDC
     lea	screen_data,a1
 
     
@@ -6148,9 +6065,6 @@ get_tile_type:
     bcc.b   .out_of_bounds
     ; no need to test sign (bmi) as bcc works unsigned so works on negative!
     ; apply x,y offset
-	IFD		ARCADE_SCREEN_LAYOUT
-	;add.w	#8,d1
-	ENDC
 	
     lsr.w   #3,d1       ; 8 divide : tile
 	subq.w	#1,d1		; correct 1 tile up (empiric)
@@ -6835,7 +6749,7 @@ write_blanked_color_string:
 ; args:
 ; < A0: c string
 ; < D0: X (multiple of 8)
-; < D1: Y or Y-24 (if ARCADE_SCREEN_LAYOUT)
+; < D1: Y-24
 ; < D2: RGB4 color (must be in palette!)
 ; > D0: number of characters written
 ; trashes: none
@@ -6852,8 +6766,10 @@ write_color_string:
     beq.b   .color_found
     addq.w  #1,d5
     dbf d3,.search
-    moveq   #0,d0   ; nothing written
-    bra.b   .out
+	move.l	current_palette(pc),a1
+	addq.w	#2,a1	; first non-black color
+    ;moveq   #0,d0   ; nothing written
+    ;bra.b   .out
 .color_found
     ; d5: color index
     lea screen_data,a1
@@ -6890,10 +6806,8 @@ write_color_string:
 write_string:
     movem.l A0-A2/d1-D2,-(a7)
     clr.w   d2
-	IFD	ARCADE_SCREEN_LAYOUT
 	add.w	#24,d1
-	ENDC
-    ADD_XY_TO_A1    a2
+	ADD_XY_TO_A1    a2
     moveq.l #0,d0
 .loop
     move.b  (a0)+,d2
@@ -7461,11 +7375,7 @@ space
     ds.b    8,0
     
 high_score_string
-	IFD	ARCADE_SCREEN_LAYOUT
     dc.b    "HIGH SCORE",0
-	ELSE
-    dc.b    "HIGH",0
-	ENDC
 pc_string
 	dc.b	"   ",0
 p1_string
@@ -7726,21 +7636,15 @@ BLANKER_SPRITE_INDEX = 5
 
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
-   IFD	ARCADE_SCREEN_LAYOUT
    dc.w color+DYN_COLOR*2
    dc.w	$FFF		; white for the scores
    dc.b	$30+15
 	dc.b	1
 	dc.w	$FFFE   
-   ENDC
    
    dc.w color+DYN_COLOR*2
    dc.w	$80D	; force magenta on color 4 (level filler)
-   IFD	ARCADE_SCREEN_LAYOUT
    dc.b	$30+40
-   ELSE
-	dc.b	$30+15	; wait till we pass the purple rectangles
-   ENDC
 	dc.b	1
 	dc.w	$FFFE   
 	; and reset the color to what it was in the palette
@@ -7786,15 +7690,10 @@ stars_sprites_copperlist:
 end_stars_sprites_copperlist
 	;;dc.b	$2C+(NB_STAR_LINES-1)*4+2,1
 	 
-   IFND	ARCADE_SCREEN_LAYOUT
-   dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
-   ENDC
 
    dc.w  $FFDF,$FFFE            ; PAL wait (256)
    dc.w  $2001,$FFFE            ; PAL extra wait (around 288)
-   IFD	ARCADE_SCREEN_LAYOUT
    dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
-   ENDC
    dc.w intreq,$8010            ; generate copper interrupt
     dc.l    -2				; end of copperlist
 

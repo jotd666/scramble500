@@ -68,12 +68,11 @@ MINOR ISSUES:
   or is it the odd/even tile pattern? well, not a big issue
 - fireball stage fireballs are flickering on some configs (maybe ok now)
 - fireballs/ship collisions are not working that well
-- trashed scores, in 2P mode, missing other UP when playing
-- if dies at level 2, other player resumes at level 1 without stars on!
-- test: give 3 lives to player 2, 1 life to p1 see if partial game over works
 - always add one life on "player one"/two screen
 - complete level 6: base not completely cleared (missing 1 plane???)
-- 2 player mode completely broken lifes are wrongly decreased so is game over
+- players cannot select button control type EVER (since first_life change)
+- after first life, don't display button control selection/don't allow to change it
+- ambient loop starts too soon on first start
 
 BUILDING FROM SOURCES:
 
