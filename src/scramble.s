@@ -587,19 +587,15 @@ intro:
     btst    #JPB_BTN_BLU,d0
     bne.b   .wait_fire_release
 .no_credit
-	move.b	#1,play_start_music_message
+
 	clr.b	display_player_one_or_two_message
 	
-	move.w	#1,start_music_countdown	; default: no wait (demo mode / moves record)
-	IFND		RECORD_INPUT_TABLE_SIZE
-	tst.b	demo_mode
-	bne.b	.wait_end_of_music
-	
-	move.w	#3*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,start_music_countdown
-	ENDC
-.wait_end_of_music
-;	cmp.w	#STATE_PLAYING,current_state
+;	IFND		RECORD_INPUT_TABLE_SIZE
+;	tst.b	demo_mode
 ;	bne.b	.wait_end_of_music
+	
+;	ENDC
+;.wait_end_of_music
 	
 .restart    
     lea _custom,a5
@@ -816,6 +812,7 @@ next_player:
 	; we switch players if 2 player mode
 	tst.b	two_player_game
 	beq.b	.no_player_change
+	st.b	player_just_changed_message	; for stars delay
 	lea		player_1,a0
 	move.l	current_player(pc),d1
 	cmp.l	a0,d1
@@ -827,6 +824,7 @@ next_player:
 	move.l	a0,current_player
 	move.w	#ORIGINAL_TICKS_PER_SEC*2,player_change_screen_timer
 	st.b	display_player_one_or_two_message
+	clr.b	game_started_flag
 .no_player_change
 	st.b	draw_level_init_message
 	rts
@@ -1015,8 +1013,12 @@ update_level_data:
 	beq.b	.no_change
 	; change when ceiling tile reaches the first position
 	; or .. whatever value looks good...
+	move.w	#-1,stars_state_change_timer	; default: instant if player switch
+	tst.b	player_just_changed_message
+	;;bne.b	.no_change
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE*4,stars_state_change_timer
 .no_change
+	clr.b	player_just_changed_message
 	move.b	d1,stars_next_state
 	add.w	d0,d0
 	add.w	d0,d0
@@ -1052,7 +1054,10 @@ update_level_data:
 	dc.w	0,0	; no enemies
 	dc.w	0,0	; no enemies
 init_new_play:
-	clr.w	player_change_screen_timer
+	move.b	#1,play_start_music_message
+	move.w	#3*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,player_change_screen_timer
+	
+	clr.b	player_just_changed_message
 	clr.w	player_game_over_screen_timer
 	move.l	current_player(pc),a4
 	clr.w	nb_missions_completed(a4)
@@ -1279,6 +1284,9 @@ update_stars
 	clr.w	stars_timer
 	move.b	stars_next_state(pc),stars_on
 	; change ambient sound loop at this moment too
+	; unless player screen shows else it cuts the intro music
+	tst.w	player_change_screen_timer
+	bne.b	.decrease
 	bsr		play_ambient_sound
 .decrease
 	subq.w	#1,stars_state_change_timer
@@ -1710,13 +1718,14 @@ PLAYER_ONE_Y = 102-14
 	; real number of remaining lives (plus the one in play)
 	bsr	draw_lives
 	bsr	draw_mission_flags
+	
+.no_play
 	move.l	current_player(pc),a4
 	
 	tst.b	first_life(a4)
-	bne.b	.no_play
-	rts		; don't allow to change controls during play
-	
-.no_play
+	bne.b	.draw_control_method
+	rts		; don't draw controls during play
+.draw_control_method
 	; controller option (amiga specific)
 	lea	one_button_control_text(pc),a0
 	tst.b	one_button_control_option(a4)
@@ -2913,7 +2922,7 @@ clear_mission_flags:
     
 draw_ground:
     bsr clear_playfield_planes
-    
+	
 	move.w	#0,d0
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE-1,d7
 	lea		ground_table(pc),a6
@@ -3449,7 +3458,9 @@ update_all
     move.w  #STATE_INTRO_SCREEN,current_state
 .cont
     rts
-    ; update
+    ; main update (play state)
+	; all those flags / timers almost made me crazy
+	; all this to handle screens & 2 player mode & music & shit
 .playing
 	move.w	player_game_over_screen_timer(pc),d0
 	beq.b	.no_gost
@@ -3460,7 +3471,7 @@ update_all
 	; is other player also dead?
 	lea		player_1(pc),a0
 	tst.b	nb_lives(a0)
-	bne.b	.out
+	bne.b	.keep_playing
 	lea		player_2(pc),a0
 	tst.b	nb_lives(a0)
 	bne.b	.keep_playing
@@ -3469,45 +3480,38 @@ update_all
 .keep_playing
 	rts
 .no_gost
+	; is it "get ready" screen ?
 	move.w	player_change_screen_timer(pc),d0
 	beq.b	.no_cst
 	subq.w	#1,d0
 	move.w	d0,player_change_screen_timer
-	bne.b	.do_nothing
-	bra.b	.play
+	beq.b	.play
 	; wait for get ready screen
-.do_nothing
-	rts
 .no_cst
 
 	; "player one" or "player two" screens
 	tst.b	game_started_flag
 	bne.b	.really_playing
 	tst.b	play_start_music_message
-	beq.b	.not_started
+	beq.b	.not_started	; 0 = never played
 	tst.b	demo_mode
 	bne.b	.play
+	; 1 = must play music now
 	cmp.b	#2,play_start_music_message
 	beq.b	.no_play	
 	moveq	#0,d0
     bsr.b	play_music
-	move.b	#2,play_start_music_message
-
+	move.b	#2,play_start_music_message	; 2 = already played
+.not_started
 	st.b	display_player_one_or_two_message
 	; re-detect controllers just in case they were switched at this point
 	bsr		_detect_controller_types
 .no_play
-	move.w	start_music_countdown(pc),d0
-	subq.w	#1,d0
-	bne.b	.out
-.play
-	st.b	game_started_flag
-	st.b	draw_level_init_message
-	; update level set data now
-	bsr		update_level_set_data
+	move.l	current_player(pc),a0
 
-.out
-	move.w	d0,start_music_countdown
+	; only allow to change controls at first life of each player
+	tst.b	first_life(a0)
+	beq.b	.no_dir_change
 
 	move.l	joystick_state(pc),d0
 	move.l	previous_joy1(pc),d1
@@ -3517,11 +3521,14 @@ update_all
 	and.l	d2,d1
 	cmp.l	d1,d0
 	beq.b	.no_dir_change
-	move.l	current_player(pc),a0
 	eor.b	#$FF,one_button_control_option(a0)
 .no_dir_change
-.not_started
 	rts
+.play
+	st.b	game_started_flag
+	st.b	draw_level_init_message
+	; update level set data now
+	bra		update_level_set_data
 	
 	; the in-game part
 .really_playing
@@ -3654,8 +3661,7 @@ update_table
 	dc.l	nothing
 	dc.l	update_base
 	
-start_music_countdown
-    dc.w    0
+
 
 draw_mission_completed
     bsr clear_screen
@@ -7189,6 +7195,8 @@ draw_game_over_message:
 draw_level_init_message:
 	dc.b	0
 play_start_music_message:
+	dc.b	0
+player_just_changed_message
 	dc.b	0
 display_player_one_or_two_message
 	dc.b	0
