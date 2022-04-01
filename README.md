@@ -72,7 +72,7 @@ MINOR ISSUES:
 - complete level 6: base not completely cleared (missing 1 plane???)
 - test stars/no stars switch on 2 player mode: ATM delay is there
   to remove the delay!!!!! but then next player gets ready screen without stars
-  if other player dies at level 2 (in update_level_set_data)
+  if other player dies at level 2 (in update_level_set_data): to test!!
 
 BUILDING FROM SOURCES:
 

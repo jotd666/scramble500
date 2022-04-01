@@ -225,7 +225,7 @@ GROUND_TILE = 10
 
 PLAYER_KILL_TIMER = 16*4*3
 GAME_OVER_TIMER = ORIGINAL_TICKS_PER_SEC*3
-
+STARS_TIMER_START = ORIGINAL_TICKS_PER_SEC
 
 ; extra enumerate for fire (demo mode)
 FIRE = 4
@@ -825,6 +825,7 @@ next_player:
 	move.w	#ORIGINAL_TICKS_PER_SEC*2,player_change_screen_timer
 	st.b	display_player_one_or_two_message
 	clr.b	game_started_flag
+	bsr		init_stars
 .no_player_change
 	st.b	draw_level_init_message
 	rts
@@ -1017,6 +1018,7 @@ update_level_data:
 	tst.b	player_just_changed_message
 	;;bne.b	.no_change
 	move.w	#NB_BYTES_PER_PLAYFIELD_LINE*4,stars_state_change_timer
+	move.w	#1,stars_timer		; change immediately
 .no_change
 	clr.b	player_just_changed_message
 	move.b	d1,stars_next_state
@@ -1055,7 +1057,7 @@ update_level_data:
 	dc.w	0,0	; no enemies
 init_new_play:
 	move.b	#1,play_start_music_message
-	move.w	#3*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,player_change_screen_timer
+	move.w	#4*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2,player_change_screen_timer
 	
 	clr.b	player_just_changed_message
 	clr.w	player_game_over_screen_timer
@@ -1273,6 +1275,7 @@ show_stars
 	
 init_stars
 	move.w	#-1,stars_state_change_timer
+	move.w	#1,stars_timer		; change immediately
 	st.b	stars_on
 	bra.b	show_stars
 	
@@ -1280,8 +1283,8 @@ update_stars
 	tst.w	stars_state_change_timer
 	bmi.b	.update
 	bne.b	.decrease
-	; set stars state
-	clr.w	stars_timer
+	; timeout: set stars state
+	move.w	#STARS_TIMER_START,stars_timer
 	move.b	stars_next_state(pc),stars_on
 	; change ambient sound loop at this moment too
 	; unless player screen shows else it cuts the intro music
@@ -1292,8 +1295,7 @@ update_stars
 	subq.w	#1,stars_state_change_timer
 .update
 	move.w	stars_timer(pc),d0
-	addq.w	#1,d0
-	cmp.w	#ORIGINAL_TICKS_PER_SEC,d0
+	subq.w	#1,d0
 	bne.b	.nowrap
 	
 	tst.b	stars_on
@@ -1303,7 +1305,7 @@ update_stars
 	bra.b	.nowrap
 .show
 	bsr		show_stars
-	clr.w	d0
+	move.w	#STARS_TIMER_START,d0
 .nowrap
 	move.w	d0,stars_timer
 	rts
@@ -3467,6 +3469,7 @@ update_all
 	subq.w	#1,d0
 	move.w	d0,player_game_over_screen_timer
 	bne.b	.keep_playing
+
 	; game over timer reached
 	; is other player also dead?
 	lea		player_1(pc),a0
@@ -3506,6 +3509,9 @@ update_all
 	st.b	display_player_one_or_two_message
 	; re-detect controllers just in case they were switched at this point
 	bsr		_detect_controller_types
+	; force stars on for this get ready screen
+	bsr	init_stars
+
 .no_play
 	move.l	current_player(pc),a0
 
@@ -3528,8 +3534,11 @@ update_all
 	st.b	game_started_flag
 	st.b	draw_level_init_message
 	; update level set data now
-	bra		update_level_set_data
-	
+	bsr		update_level_set_data
+	; star change is immediate, we don't want to wait, the level
+	; just started (no issue) or resumed (problem can arise)
+	move.w	#1,stars_state_change_timer
+	rts
 	; the in-game part
 .really_playing
 	tst.b	game_completed_flag
