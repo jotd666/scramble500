@@ -100,7 +100,7 @@ Execbase  = 4
 
 ;START_NB_LIVES = 2
 ;START_SCORE = 525670/10
-START_LEVEL = 6
+;START_LEVEL = 6
 ;START_FUEL = 40
 ; no destructions, can bomb object forever if set
 ;BOMB_TEST_MODE
