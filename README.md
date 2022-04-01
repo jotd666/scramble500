@@ -2,9 +2,6 @@ Scramble 500
 
 This is a (successful) attempt by jotd to create a 1:1 port of the famous arcade game on Amiga 500 using 100% 68k assembly.
 
-The display is 4:3 so scores, lives, bonuses are on the side rather than on top/botton. The gameplay layout is 1:1 vs
-the original, though.
-
 REQUIRES:
 
 - any 68k CPU
@@ -13,12 +10,14 @@ REQUIRES:
 
 FEATURES:
 
-- original visual & sounds
+- original portrait layout, visual & sounds
 - faithful enemy behaviour & speed & increasing difficulty
 - 50 frames per second (PAL) even on a 68000 A500
 - all levels
-- joystick controlled (port 1) or keyboard controls (arrows + ctrl + alt)
-- can run directly from shell or from whdload (fast machines/complex configurations)
+- joystick/joypad controlled (port 1) or keyboard controls (arrows + ctrl + alt), P pauses
+- 2 player mode (still using joystick in port 1)
+- 2/3 button joystick and CD32 joypad support
+- can run directly from shell or from whdload (fast machines/high-end configurations)
 
 CONTROLS:
 
@@ -34,7 +33,8 @@ CONTROLS:
   it also selects two-button mode.
   If game is started using bomb or second button, two-button mode is also
   selected.
-
+- when the game prompts "one player only", move the joystick to switch to "two players"
+ 
 HOW TO PLAY:
 
 - all levels: shoot/bomb everything! don't miss fuel tanks to avoid running out of fuel
@@ -52,27 +52,22 @@ CREDITS:
 
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
 - hajodick (EAB): game map rips from the arcade
-- Andrzej Dobrowolski (aka no9): music & sfx loops (plus sfx advice)
+- Andrzej Dobrowolski (aka no9, from EAB): music & sfx loops (plus sfx advice)
 - Scott Tunstall: brilliant reverse engineering work of the arcade version 
-- Frank Wille (aka phx): sfx/module player
-- ross: help with screen centering
+- Frank Wille (aka phx): sfx/module player (and of course vasm assembler!)
+- ross (from EAB): help with screen centering
+- 125scratch: sprite rips https://www.spriters-resource.com/arcade/scramble
 - DanyPPC: icon
 - meynaf: random routine
-- eab forum: useful advice & support
-- 125scratch: sprite rips https://www.spriters-resource.com/arcade/scramble
+- eab.abime.net forum: useful advice, invaluable testing & support
 - konami: original game :)
 
 MINOR ISSUES:
 
 - level 4/5 filler bricks are inverted (brick then square) in the bottom section
-  or is it the odd/even tile pattern? well, not a big issue
+  or is it the odd/even tile pattern? well, who cares? not me.
+- when a highscore is entered, the flashing doesn't work that well
 - fireball stage fireballs are flickering on some configs (maybe ok now)
-- fireballs/ship collisions are not working that well
-- always add one life on "player one"/two screen
-- complete level 6: base not completely cleared (missing 1 plane???)
-- test stars/no stars switch on 2 player mode: ATM delay is there
-  to remove the delay!!!!! but then next player gets ready screen without stars
-  if other player dies at level 2 (in update_level_set_data): to test!!
 
 BUILDING FROM SOURCES:
 
@@ -97,6 +92,6 @@ Build process:
 - python and sox must be installed to be able to perform the wav2raw conversions
 - get "bitplanelib.py" (asset conversion tool needs it) at https://github.com/jotd666/amiga68ktools.git
 
-Binary assets must be created first, then makefile must be called to create the "mspacman" program
+Binary assets must be created first, then makefile must be called to create the main program
 
 

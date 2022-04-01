@@ -89,7 +89,9 @@ Execbase  = 4
 ; uncomment to mark scroll columns with letters	
 ;SCROLL_DEBUG
 
-; if set skips intro, game starts immediately
+; if set skips intro, game starts immediately (scrolling landscape
+; is slightly buggy because of a state/flag conflict but I'm not going
+; to fix that, it's a test mode after all
 ;DIRECT_GAME_START
 
 ;X_SHIP_START = 57
@@ -98,7 +100,7 @@ Execbase  = 4
 
 ;START_NB_LIVES = 2
 ;START_SCORE = 525670/10
-;START_LEVEL = 3
+START_LEVEL = 6
 ;START_FUEL = 40
 ; no destructions, can bomb object forever if set
 ;BOMB_TEST_MODE
@@ -532,6 +534,7 @@ intro:
 	move.w	#1,cheat_keys	; enable cheat in that mode, we need to test the game
 	st.b	game_started_flag
 	st.b	draw_level_init_message
+	move.w	#1,player_change_screen_timer
     bra.b   .restart
     ENDC
 
@@ -876,6 +879,14 @@ set_game_over:
     move.w  #STATE_GAME_OVER,current_state
 	rts
 
+load_congrats_palette	
+    lea end_screen_palette,a0
+	move.w	#8,d0		; 8 colors
+	bsr		load_palette	
+	move.w	#$FF0,yellow_color
+	move.w	#$FFF,white_color	
+	rts
+	
 load_menu_palette	
     lea menu_palette,a0
 	move.w	#8,d0		; 8 colors
@@ -1216,7 +1227,7 @@ draw_player_title
 	
 	
 stars_palette_size = (end_stars_palette-stars_palette)
-NB_STAR_LINES = 53
+NB_STAR_LINES = 104
 star_copperlist_size = (end_stars_sprites_copperlist-stars_sprites_copperlist)/NB_STAR_LINES
 
 ; remove stars (levels 2 and 5, where there's a ceiling)
@@ -1716,9 +1727,12 @@ PLAYER_ONE_Y = 102-14
 	move.w	#160-24,d1
     move.w  white_color(pc),d2
     bsr write_color_string
-
+	move.l	current_player(pc),a4
+	addq.b	#1,nb_lives(a4)	; draw one more life
 	; real number of remaining lives (plus the one in play)
 	bsr	draw_lives
+	subq.b	#1,nb_lives(a4)
+	
 	bsr	draw_mission_flags
 	
 .no_play
@@ -2360,7 +2374,6 @@ draw_intro_screen
     move.b  (a1)+,(a0)
     clr.b   (a1)    ; ack
     move.w  white_color(pc),d2
-	LOGPC	100
     bsr write_color_string
 .nothing_to_print
     rts
@@ -3677,9 +3690,7 @@ draw_mission_completed
     bsr	clear_playfield_planes
 	; set mixed palette so the text has the proper colors
 	; but so have lives/missions
-    lea end_screen_palette,a0
-	move.w	#8,d0		; 8 colors
-	bsr		load_palette	
+    bsr	load_congrats_palette
 
 	; some colors are wrong but it doesn"t matter much
 	; for it to be correct we'd have to change it dynamically
@@ -7688,7 +7699,7 @@ sprites:
 	
 stars_sprites_copperlist:
 	REPT	NB_STAR_LINES
-	dc.b	$2C+REPTN*4+2
+	dc.b	$2C+REPTN*2+2
 	dc.b	1
 	dc.w	$FFFE
     ; we use sprite #7 (last) for the stars, multiplexing it
@@ -7698,7 +7709,7 @@ stars_sprites_copperlist:
 	; sprite pattern
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataa,$8000	; 24
     dc.w    spr+sd_SIZEOF*STAR_SPRITE_INDEX+sd_dataB,$0000	; 28
- 	dc.b	$2C+REPTN*4+3	; 32
+ 	dc.b	$2C+REPTN*2+3	; 32
 	dc.b	1
 	dc.w	$FFFE
     dc.w    spr+sd_SIZEOF*7+sd_dataa,0	; 36
