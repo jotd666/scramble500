@@ -1917,14 +1917,15 @@ draw_tiles:
 	movem.l	d0-d7/A0-A5,-(a7)
 	lea		tiles,a0
 	clr.w	(a4)	; zero coord: no rocket in the column by default
-	move.w	d0,d5	; save X-offset for later on
 	lea		scroll_data+NB_BYTES_PER_SCROLL_SCREEN_LINE*40,a1	; 2nd playfield
-	add.w	d5,a1		; add x offset
+	add.w	d0,a1		; add x offset
+	
+	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE,d3
+	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,d4	; we'll need this value
 
 	move.w	#16,d6	; current y	
 
 	
-	move.w	#NB_BYTES_PER_SCROLL_SCREEN_LINE*8,d4	; we'll need this value
 	move.w	(a6)+,d2	; number of vertical tiles to draw - upper part
 	beq.b	.lower
 	bpl.b	.okay
@@ -1966,15 +1967,17 @@ draw_tiles:
 	cmp.w	d1,d6
 	beq.b	.no_clear	; reached
 	REPT	8
-	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a3)
-	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a2)
+	clr.b	(a3)
+	clr.b	(a2)
+	add.w	d3,a3
+	add.w	d3,a2
 	ENDR
 	clr.b	(a5)
 	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 	addq.w	#8,d6
 	add.w	d4,a1
-	add.w	d4,a2
-	add.w	d4,a3
+	;add.w	d4,a2
+	;add.w	d4,a3
 	bra.b	.clear
 
 .no_clear
@@ -2022,15 +2025,17 @@ draw_tiles:
 	cmp.w	d7,d6
 	bcc.b	.fend
 	REPT	8
-	st.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a3)
-	clr.b	(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a2)
+	st.b	(a3)
+	clr.b	(a2)
+	add.w	d3,a3	; adds NB_BYTES_PER_SCROLL_SCREEN_LINE
+	add.w	d3,a2
 	ENDR
 	st.b	(a5)
 	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
 	addq.w	#8,d6
 	add.w	d4,a1
-	add.w	d4,a2
-	add.w	d4,a3
+	;add.w	d4,a2
+	;add.w	d4,a3
 	bra.b	.fill
 .fend
 	rts
@@ -2060,15 +2065,17 @@ draw_tiles:
 
 	; copy both planes
 	REPT	8
-	move.b	(8,a0),(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a3)
-	move.b	(a0)+,(REPTN*NB_BYTES_PER_SCROLL_SCREEN_LINE,a2)
+	move.b	(8,a0),(a3)
+	move.b	(a0)+,(a2)
+	add.w	d3,a3	; adds NB_BYTES_PER_SCROLL_SCREEN_LINE
+	add.w	d3,a2
 	ENDR
 	move.b	d0,(a5)
-	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
+	lea		(NB_BYTES_PER_PLAYFIELD_LINE,a5),a5
 
 	add.w	d4,a1
-	add.w	d4,a2
-	add.w	d4,a3
+	;add.w	d4,a2
+	;add.w	d4,a3
 	addq.w	#8,d6	; advance y
 	move.l	(a7)+,a0
 	rts
@@ -3905,10 +3912,6 @@ draw_scrolling_tiles
 	
 	; acknowledge draw tile message
 	clr.b	draw_tile_column_message
-	
-	
-	
-
 .no_new_tiles	
 	rts
 	
