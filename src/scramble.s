@@ -492,12 +492,10 @@ BPLMOD = $A		; bplmod needs to be altered too
    
 	; dual playfield
     move.w #$6600,bplcon0(a5) ; 6 bitplanes, dual playfield
-    ;;clr.w bplcon2(a5)                     ; no priority (sprites behind)
-    move.w #BPLMOD,bpl1mod(a5)                ; one of ross' magic value so the screen is centered
+    move.w #0,bplcon2(a5)          ; no priority (sprite starfield behind)
+    move.w #BPLMOD,bpl1mod(a5)     ; one of ross' magic value so the screen is centered
 
-intro:
-	move.l #screen_data,$100	; TEMP
-	
+intro:	
 	move.w	#STATE_INTRO_SCREEN,current_state
 	
     lea _custom,a5
@@ -2031,7 +2029,7 @@ draw_tiles:
 	add.w	d3,a2
 	ENDR
 	st.b	(a5)
-	add.w	#NB_BYTES_PER_PLAYFIELD_LINE,a5
+	lea		(NB_BYTES_PER_PLAYFIELD_LINE,a5),a5
 	addq.w	#8,d6
 	add.w	d4,a1
 	;add.w	d4,a2
@@ -2571,9 +2569,9 @@ clear_plane_any_cpu_any_height
     movem.l d0-D3/a0-a2,-(a7)
     subq.w  #1,d3
     bmi.b   .out
-    lea mul40_table(pc),a2
     add.w   d1,d1
     beq.b   .no_add
+    lea mul40_table(pc),a2
     move.w  (a2,d1.w),d1
     add.w   d1,a1
 .no_add
@@ -6066,7 +6064,7 @@ HW_SpriteYTable
   rept 260
 ys  set REPTN+$2c
 ye  set ys+16       ; size = 16
-    dc.b  ys&255, 0, ye&255, ((ys>>6)&%100) | ((ye>>7)&%10)
+    dc.b  ys&255, 0, ye&255, ((ys>>6)&4) | ((ye>>7)&2)
   endr
 
     
@@ -7655,12 +7653,20 @@ screen_tile_table
 
 
 ; main copper list
-coplist
+coplist:
 
 bitplanes:
 	REPT	12
 	dc.w	bplpt+REPTN*2,0
 	ENDR
+	; set x-shift right after bitplane pointers have
+	; been set. This was done at the end of the screen
+	; (after dynamic color changes) and introduced
+	; screen tearing on slow machines. This seems fixed
+	; just by doing that when on top of the screen
+    dc.w  bplcon1
+bplcon1_value:
+   dc.w		$0000            ;  BPLCON1 := 0x0000
 
 STAR_SPRITE_INDEX = 7
 BLANKER_SPRITE_INDEX = 5
@@ -7683,12 +7689,6 @@ colors:
 dyn_color_reset:
 	dc.w	$1c0     ; green or gray
 end_color_copper:
-   ; we don't need to set it here
-   dc.w  bplcon1
-bplcon1_value:
-   dc.w		$0000            ;  BPLCON1 := 0x0000
-   ; proper sprite priority: below bitplanes for the stars effect
-   dc.w  bplcon2,$0000            ;  BPLCON2
 
 
 sprites:
@@ -7723,9 +7723,13 @@ end_stars_sprites_copperlist
 	 
 
    dc.w  $FFDF,$FFFE            ; PAL wait (256)
-   dc.w  $2001,$FFFE            ; PAL extra wait (around 288)
+   dc.w  $1001,$FFFE            ; PAL extra wait (around 272)
+   ; generate copper interrupt now, leave more CPU for refresh
+   ; the bottom of the screen is almost static so no risk of graphical glitches
+   ; but now the game has more time to perform scrolling update
+   dc.w intreq,$8010            
+   dc.w  $1001,$FFFE            ; PAL extra wait (around 288)
    dc.w color+DYN_COLOR*2,$00E     ; blue (fuel)
-   dc.w intreq,$8010            ; generate copper interrupt
     dc.l    -2				; end of copperlist
 
 
