@@ -436,13 +436,13 @@ Start:
 	move.l	#-1,pr_WindowPtr(A0)	; no more system requesters (insert volume, write protected...)
 
     
-.no_forbid
     
-;    sub.l   a1,a1
-;    move.l  a4,a6
-;    jsr (_LVOLoadView,a6)
-;    jsr (_LVOWaitTOF,a6)
-;    jsr (_LVOWaitTOF,a6)
+    sub.l   a1,a1
+    move.l  a4,a6
+    jsr (_LVOLoadView,a6)
+    jsr (_LVOWaitTOF,a6)
+    jsr (_LVOWaitTOF,a6)
+.no_forbid
 
     move.w  #STATE_INTRO_SCREEN,current_state
     
