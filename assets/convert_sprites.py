@@ -67,7 +67,7 @@ BOSS = 86
 MYSTERY = 17
 
 
-bitplanelib.palette_dump(menu_palette,os.path.join(source_dir,"menu_palette.s"),as_copperlist=False)
+bitplanelib.palette_dump(menu_palette,os.path.join(source_dir,"menu_palette.s"))
 
 
 def process_maps():
@@ -472,8 +472,8 @@ end_screen_palette[7] = (240,240,0)
 ##                (128,0,208), # purple
 ##                ]
 
-bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"),as_copperlist=False)
-bitplanelib.palette_dump(end_screen_palette,os.path.join(source_dir,"end_screen_palette.s"),as_copperlist=False)
+bitplanelib.palette_dump(game_palette,os.path.join(source_dir,"objects_palette.s"))
+bitplanelib.palette_dump(end_screen_palette,os.path.join(source_dir,"end_screen_palette.s"))
 
 
 process_fonts(dump_fonts)

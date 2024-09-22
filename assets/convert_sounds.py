@@ -18,7 +18,7 @@ sampling_rate = 22050
 for wav_file in wav_files:
     raw_file = os.path.join(outdir,os.path.splitext(os.path.basename(wav_file))[0]+".raw")
     def get_sox_cmd(sr,output):
-        return [sox,"--volume","1.0",wav_file,"--channels","1","--bits","8","-r",str(sr),"--encoding","signed-integer",output]
+        return [sox,"--volume","1.0",wav_file,"--channels","1","-D","--bits","8","-r",str(sr),"--encoding","signed-integer",output]
     used_sampling_rate = sampling_rate
 
     cmd = get_sox_cmd(used_sampling_rate,raw_file)
